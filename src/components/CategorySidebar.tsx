@@ -78,6 +78,13 @@ export function CategorySidebar() {
 
   const allSelected = selectedIds.size === topLevel.length && topLevel.length > 0
 
+  // 是否存在任何"有子分类"的分类（用于显示/禁用一键展开按钮）
+  const allParentIds = categories
+    .filter((c) => categories.some((x) => x.parentId === c.id))
+    .map((c) => c.id)
+  const hasAnyChildren = allParentIds.length > 0
+  const allExpanded = hasAnyChildren && allParentIds.every((id) => expanded.has(id))
+
   /** 递归渲染树节点 */
   const renderNode = (cat: Category, depth: number): JSX.Element => {
     const children = childrenOf(cat.id)
@@ -111,20 +118,20 @@ export function CategorySidebar() {
           {hasChildren ? (
             <button
               className={cn(
-                'w-4 h-4 flex items-center justify-center text-[10px] shrink-0 leading-none rounded',
-                'transition-transform duration-150',
+                'w-5 h-5 flex items-center justify-center text-[11px] shrink-0 leading-none rounded',
+                'transition-transform duration-150 font-bold',
                 isExpanded ? 'rotate-90' : '',
                 !selectMode && active
-                  ? 'text-white/80 hover:bg-white/10'
-                  : 'text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 dark:hover:bg-slate-700/60',
+                  ? 'text-white hover:bg-white/20'
+                  : 'text-slate-500 hover:text-slate-900 hover:bg-slate-200 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-700',
               )}
               onClick={(e) => { e.stopPropagation(); toggleExpand(cat.id) }}
-              title={isExpanded ? '折叠' : '展开'}
+              title={isExpanded ? '折叠子分类' : '展开子分类'}
             >
-              ▸
+              ▶
             </button>
           ) : (
-            <span className="w-4 shrink-0" />
+            <span className="w-5 shrink-0" />
           )}
 
           {selectMode && checkable ? (
@@ -304,20 +311,20 @@ export function CategorySidebar() {
               <div className="flex items-center gap-0.5">
                 <button
                   onClick={() => {
-                    // 一键展开/折叠所有有子节点的分类
-                    const allParentIds = categories
-                      .filter((c) => categories.some((x) => x.parentId === c.id))
-                      .map((c) => c.id)
-                    if (expanded.size >= allParentIds.length) {
-                      setExpanded(new Set())
-                    } else {
-                      setExpanded(new Set(allParentIds))
-                    }
+                    if (allExpanded) setExpanded(new Set())
+                    else setExpanded(new Set(allParentIds))
                   }}
-                  className="btn-ghost !p-1 h-6 w-6 text-xs"
-                  disabled={topLevel.length === 0}
-                  title="一键展开/折叠全部"
-                >⇅</button>
+                  className={cn(
+                    'btn-ghost !px-1.5 h-6 text-[11px] leading-none whitespace-nowrap',
+                    !hasAnyChildren && 'opacity-40 cursor-not-allowed',
+                  )}
+                  disabled={!hasAnyChildren}
+                  title={
+                    !hasAnyChildren
+                      ? '当前没有任何子分类，从浏览器再导入或新建子分类后即可使用'
+                      : allExpanded ? '一键折叠全部子分类' : '一键展开全部子分类'
+                  }
+                >{allExpanded ? '全收' : '全展'}</button>
                 <button
                   onClick={enterSelectMode}
                   className="btn-ghost !p-1 h-6 w-6 text-xs"
@@ -347,6 +354,14 @@ export function CategorySidebar() {
         <div className="flex flex-col gap-0.5 overflow-y-auto">
           {topLevel.map((cat) => renderNode(cat, 0))}
         </div>
+
+        {/* 数据全平铺提示：让用户知道树形折叠功能存在 */}
+        {topLevel.length > 0 && !hasAnyChildren && (
+          <div className="mt-3 px-2 text-[11px] leading-relaxed text-slate-400">
+            提示：当前所有分类都是顶层。从浏览器导入嵌套的书签文件夹后，
+            这里会出现 <span className="font-bold text-slate-500">▶</span> 按钮，可点击展开下级。
+          </div>
+        )}
       </div>
     </aside>
   )
