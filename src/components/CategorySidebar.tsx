@@ -3,6 +3,9 @@ import type { Category } from '../types/bookmark'
 import { useBookmarkStore } from '../stores/useBookmarkStore'
 import { cn } from '../utils/cn'
 
+// 每次 UI 改动时手动 +1，便于在页面右下角确认"是否加载到最新代码"
+const SIDEBAR_BUILD_TAG = 'v3-always-plus'
+
 export function CategorySidebar() {
   const categories = useBookmarkStore((s) => s.categories)
   const cards = useBookmarkStore((s) => s.cards)
@@ -184,16 +187,19 @@ export function CategorySidebar() {
 
           {!selectMode && (
             <>
-              {/* 新建子分类（hover 显示） */}
+              {/* 新建子分类（始终可见，避免 hover 不触发的不确定性） */}
               <button
                 className={cn(
-                  'opacity-0 group-hover:opacity-100 transition-opacity text-sm leading-none px-0.5 shrink-0',
-                  active ? 'text-white/80 hover:text-white' : 'text-slate-400 hover:text-brand'
+                  'w-5 h-5 flex items-center justify-center rounded text-base leading-none shrink-0',
+                  'transition-colors',
+                  active
+                    ? 'text-white/70 hover:text-white hover:bg-white/20'
+                    : 'text-slate-400 hover:text-brand hover:bg-slate-200/80 dark:hover:bg-slate-700',
                 )}
                 onClick={(e) => { e.stopPropagation(); handleAddSub(cat) }}
                 title={`在「${cat.name}」下新建子分类`}
               >+</button>
-              {/* 删除（hover 显示） */}
+              {/* 删除（hover 显示，避免误触） */}
               <button
                 className={cn(
                   'opacity-0 group-hover:opacity-100 transition-opacity text-xs px-0.5 shrink-0',
@@ -394,9 +400,13 @@ export function CategorySidebar() {
             </div>
             {!hasAnyChildren && (
               <div className="mt-1.5 leading-snug">
-                还没有子分类，把鼠标悬停到任一分类上，点 <span className="font-bold text-slate-500">+</span> 即可创建子分类，立刻就能看到 <span className="font-bold text-slate-500">▶</span> 折叠按钮。
+                每行右侧的 <span className="font-bold text-slate-500">+</span> 是「新建子分类」按钮（始终可见），点一下输入名称即可，新建后会立刻出现 <span className="font-bold text-slate-500">▶</span> 折叠按钮。
               </div>
             )}
+            {/* build 标记：用于判断当前页面是否加载了最新代码 */}
+            <div className="mt-1.5 opacity-50 text-[10px]">
+              ui-build: {SIDEBAR_BUILD_TAG}
+            </div>
           </div>
         )}
       </div>
