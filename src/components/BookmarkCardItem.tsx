@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import type { BookmarkCard } from '../types/bookmark'
@@ -15,8 +15,11 @@ interface Props {
  * - 整张卡片点击 → 在新标签页打开 URL
  *   （dnd-kit 已配置 5px 拖拽阈值；下方 useEffect 再做一道保险，
  *    若 pointerdown→up 位移 > 5px 则标记为「拖拽刚结束」，本次 click 跳过打开）
- * - hover 时右上角显示编辑标题/删除按钮
- * - 底部备注区始终可见：
+ * - hover 时右上角显示编辑/删除按钮，✎ 进入「就地编辑」模式：
+ *   - 同时编辑「标题」和「URL」两个字段
+ *   - 编辑时禁用 dnd 拖拽与整卡 click（避免干扰输入）
+ *   - Enter 保存 / Esc 取消
+ * - 底部备注区始终可见（描述/Description）：
  *   - 已有备注 → 直接展示备注文本（最多 2 行），点击进入编辑
  *   - 无备注  → 展示低调的「+ 添加备注」占位按钮
  */
@@ -29,6 +32,12 @@ export function BookmarkCardItem({ card }: Props) {
 
   const cardRef = useRef<HTMLDivElement | null>(null)
   const draggedRecently = useRef(false)
+
+  // 就地编辑状态
+  const [editing, setEditing] = useState(false)
+  const [draftTitle, setDraftTitle] = useState(card.title)
+  const [draftUrl, setDraftUrl] = useState(card.url)
+  const titleInputRef = useRef<HTMLInputElement | null>(null)
 
   // 合并 ref（既给 dnd-kit，也给本组件用）
   const setRefs = (el: HTMLDivElement | null) => {
@@ -55,6 +64,11 @@ export function BookmarkCardItem({ card }: Props) {
     }
   }, [])
 
+  // 进入编辑模式时聚焦标题
+  useEffect(() => {
+    if (editing) titleInputRef.current?.focus()
+  }, [editing])
+
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
@@ -66,11 +80,25 @@ export function BookmarkCardItem({ card }: Props) {
     window.open(card.url, '_blank', 'noopener,noreferrer')
   }
 
-  const handleEditTitle = () => {
-    const newTitle = window.prompt('编辑标题', card.title)
-    if (newTitle !== null && newTitle.trim()) {
-      void updateCard(card.id, { title: newTitle.trim() })
+  const startEdit = () => {
+    setDraftTitle(card.title)
+    setDraftUrl(card.url)
+    setEditing(true)
+  }
+  const cancelEdit = () => {
+    setEditing(false)
+  }
+  const saveEdit = async () => {
+    const title = draftTitle.trim()
+    const url = draftUrl.trim()
+    if (!title || !url) return
+    // 没有任何变化时直接退出，不写库
+    if (title === card.title && url === card.url) {
+      setEditing(false)
+      return
     }
+    await updateCard(card.id, { title, url })
+    setEditing(false)
   }
 
   const handleEditNote = () => {
@@ -78,7 +106,6 @@ export function BookmarkCardItem({ card }: Props) {
       card.description ? '编辑备注' : '为该书签添加备注',
       card.description ?? '',
     )
-    // 取消 prompt（null）→ 不动；空字符串 → 清除备注
     if (next === null) return
     void updateCard(card.id, { description: next.trim() || undefined })
   }
@@ -87,74 +114,154 @@ export function BookmarkCardItem({ card }: Props) {
     if (window.confirm(`删除「${card.title}」？`)) void removeCard(card.id)
   }
 
+  // 编辑模式下：解绑 dnd 拖拽 listeners、禁用整卡 click
+  const dragProps = editing ? {} : { ...attributes, ...listeners }
+  const canSave =
+    draftTitle.trim().length > 0 &&
+    draftUrl.trim().length > 0 &&
+    (draftTitle.trim() !== card.title || draftUrl.trim() !== card.url)
+
   return (
     <div
       ref={setRefs}
       style={style}
-      {...attributes}
-      {...listeners}
+      {...dragProps}
       onClick={(e) => {
+        if (editing) return
         if (e.defaultPrevented) return
         openUrl()
       }}
       className={cn(
-        'card group p-3 select-none cursor-pointer',
-        'flex flex-col gap-2 h-32',
-        'hover:border-brand/40 hover:shadow-brand/10',
+        'card group p-3 select-none',
+        'flex flex-col gap-2',
+        editing
+          ? 'cursor-default min-h-32 ring-2 ring-brand/40 shadow-md'
+          : 'cursor-pointer h-32 hover:border-brand/40 hover:shadow-brand/10',
       )}
-      title={`点击打开：${card.url}`}
+      title={editing ? undefined : `点击打开：${card.url}`}
     >
-      {/* 顶部：图标 + 标题/域名 + hover 操作按钮 */}
+      {/* 顶部：图标 + 标题/域名（或编辑表单） + hover 操作 */}
       <div className="flex items-start gap-2">
         <img
-          src={card.icon || getFaviconUrl(card.url)}
+          src={card.icon || getFaviconUrl(draftUrl || card.url)}
           alt=""
           className="w-8 h-8 rounded shrink-0 bg-slate-100 dark:bg-slate-700 object-contain"
           onError={(e) => {
             ;(e.currentTarget as HTMLImageElement).style.visibility = 'hidden'
           }}
         />
-        <div className="flex-1 min-w-0">
-          <div className="text-sm font-medium truncate" title={card.title}>
-            {card.title}
+
+        {editing ? (
+          <div className="flex-1 min-w-0 flex flex-col gap-1.5">
+            <input
+              ref={titleInputRef}
+              value={draftTitle}
+              onChange={(e) => setDraftTitle(e.target.value)}
+              onClick={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
+              onKeyDown={(e) => {
+                e.stopPropagation()
+                if (e.key === 'Enter') void saveEdit()
+                if (e.key === 'Escape') cancelEdit()
+              }}
+              placeholder="标题"
+              className={cn(
+                'w-full text-sm font-medium px-2 py-1 rounded',
+                'bg-white dark:bg-slate-900',
+                'border border-slate-200 dark:border-slate-700',
+                'focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand/30',
+              )}
+            />
+            <input
+              value={draftUrl}
+              onChange={(e) => setDraftUrl(e.target.value)}
+              onClick={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
+              onKeyDown={(e) => {
+                e.stopPropagation()
+                if (e.key === 'Enter') void saveEdit()
+                if (e.key === 'Escape') cancelEdit()
+              }}
+              placeholder="https://..."
+              spellCheck={false}
+              className={cn(
+                'w-full text-xs px-2 py-1 rounded font-mono',
+                'bg-white dark:bg-slate-900',
+                'border border-slate-200 dark:border-slate-700',
+                'focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand/30',
+              )}
+            />
           </div>
-          <div className="text-xs text-slate-400 truncate">
-            {getHostname(card.url)}
+        ) : (
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-medium truncate" title={card.title}>
+              {card.title}
+            </div>
+            <div className="text-xs text-slate-400 truncate">
+              {getHostname(card.url)}
+            </div>
           </div>
-        </div>
-        <div className="flex flex-col gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-          <button
-            type="button"
-            className="text-[11px] text-slate-400 hover:text-brand px-1 leading-none"
-            onClick={(e) => {
-              e.preventDefault()
-              e.stopPropagation()
-              handleEditTitle()
-            }}
-            onPointerDown={(e) => e.stopPropagation()}
-            title="编辑标题"
-          >
-            ✎
-          </button>
-          <button
-            type="button"
-            className="text-[11px] text-slate-400 hover:text-red-500 px-1 leading-none"
-            onClick={(e) => {
-              e.preventDefault()
-              e.stopPropagation()
-              handleDelete()
-            }}
-            onPointerDown={(e) => e.stopPropagation()}
-            title="删除"
-          >
-            ✕
-          </button>
-        </div>
+        )}
+
+        {!editing && (
+          <div className="flex flex-col gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+            <button
+              type="button"
+              className="text-[11px] text-slate-400 hover:text-brand px-1 leading-none"
+              onClick={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                startEdit()
+              }}
+              onPointerDown={(e) => e.stopPropagation()}
+              title="编辑标题与 URL"
+            >
+              ✎
+            </button>
+            <button
+              type="button"
+              className="text-[11px] text-slate-400 hover:text-red-500 px-1 leading-none"
+              onClick={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                handleDelete()
+              }}
+              onPointerDown={(e) => e.stopPropagation()}
+              title="删除"
+            >
+              ✕
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* 底部备注区：始终可见 */}
+      {/* 底部区：编辑模式 → 保存/取消；非编辑 → 备注 */}
       <div className="mt-auto">
-        {card.description ? (
+        {editing ? (
+          <div className="flex items-center justify-end gap-1.5 pt-1">
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); cancelEdit() }}
+              onPointerDown={(e) => e.stopPropagation()}
+              className={cn(
+                'px-2.5 py-1 rounded text-xs',
+                'text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700',
+              )}
+            >取消</button>
+            <button
+              type="button"
+              disabled={!canSave}
+              onClick={(e) => { e.stopPropagation(); void saveEdit() }}
+              onPointerDown={(e) => e.stopPropagation()}
+              className={cn(
+                'px-2.5 py-1 rounded text-xs font-medium',
+                canSave
+                  ? 'bg-brand text-white hover:bg-brand-600'
+                  : 'bg-slate-200 text-slate-400 cursor-not-allowed dark:bg-slate-700 dark:text-slate-500',
+              )}
+            >保存</button>
+          </div>
+        ) : card.description ? (
           <button
             type="button"
             onClick={(e) => {
