@@ -1,0 +1,56 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 侧栏折叠/展开时右边缘的流动彩光 */
+.sidebar-glow-edge {
+  background: linear-gradient(
+    180deg,
+    transparent  0%,
+    #818cf8     15%,   /* indigo-400  */
+    #c084fc     35%,   /* purple-400  */
+    #22d3ee     55%,   /* cyan-400    */
+    #f472b6     75%,   /* pink-400    */
+    #818cf8     90%,   /* indigo-400  */
+    transparent 100%
+  );
+  background-size: 100% 300%;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    @apply h-full w-full;
+  }
+
+  body {
+    @apply bg-gradient-to-br from-slate-50 via-white to-indigo-50;
+    @apply text-slate-900 antialiased;
+    @apply dark:from-slate-950 dark:via-slate-900 dark:to-indigo-950 dark:text-slate-100;
+    font-family: theme('fontFamily.sans');
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-white/70 dark:bg-slate-800/60 backdrop-blur;
+    @apply border border-slate-200/60 dark:border-slate-700/60;
+    @apply rounded-xl shadow-sm hover:shadow-md transition-all;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5;
+    @apply px-3 py-1.5 rounded-lg text-sm font-medium;
+    @apply transition-colors;
+  }
+
+  .btn-primary {
+    @apply btn bg-brand text-white hover:bg-brand-600;
+  }
+
+  .btn-ghost {
+    @apply btn text-slate-600 hover:bg-slate-100;
+    @apply dark:text-slate-300 dark:hover:bg-slate-800;
+  }
+}
