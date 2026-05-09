@@ -55,6 +55,13 @@ export function CategorySidebar() {
     if (!name?.trim()) return
     await addCategory(name.trim())
   }
+  const handleAddSub = async (parent: Category) => {
+    const name = window.prompt(`在「${parent.name}」下新建子分类`)
+    if (!name?.trim()) return
+    await addCategory(name.trim(), undefined, parent.id)
+    // 自动展开父级，让新创建的子分类立刻可见
+    setExpanded((prev) => new Set(prev).add(parent.id))
+  }
   const startEdit = (id: string, name: string) => { setEditingId(id); setEditingName(name) }
   const commitEdit = async () => {
     if (editingId && editingName.trim()) await renameCategory(editingId, editingName.trim())
@@ -176,20 +183,32 @@ export function CategorySidebar() {
           </span>
 
           {!selectMode && (
-            <button
-              className={cn(
-                'opacity-0 group-hover:opacity-100 transition-opacity text-xs px-0.5 shrink-0',
-                active ? 'text-white/80' : 'text-slate-400 hover:text-red-500'
-              )}
-              onClick={async (e) => {
-                e.stopPropagation()
-                const msg = hasChildren
-                  ? `删除「${cat.name}」及其所有子文件夹和书签？`
-                  : `删除「${cat.name}」及其下所有书签？`
-                if (window.confirm(msg)) await removeCategory(cat.id)
-              }}
-              title="删除"
-            >✕</button>
+            <>
+              {/* 新建子分类（hover 显示） */}
+              <button
+                className={cn(
+                  'opacity-0 group-hover:opacity-100 transition-opacity text-sm leading-none px-0.5 shrink-0',
+                  active ? 'text-white/80 hover:text-white' : 'text-slate-400 hover:text-brand'
+                )}
+                onClick={(e) => { e.stopPropagation(); handleAddSub(cat) }}
+                title={`在「${cat.name}」下新建子分类`}
+              >+</button>
+              {/* 删除（hover 显示） */}
+              <button
+                className={cn(
+                  'opacity-0 group-hover:opacity-100 transition-opacity text-xs px-0.5 shrink-0',
+                  active ? 'text-white/80' : 'text-slate-400 hover:text-red-500'
+                )}
+                onClick={async (e) => {
+                  e.stopPropagation()
+                  const msg = hasChildren
+                    ? `删除「${cat.name}」及其所有子文件夹和书签？`
+                    : `删除「${cat.name}」及其下所有书签？`
+                  if (window.confirm(msg)) await removeCategory(cat.id)
+                }}
+                title="删除"
+              >✕</button>
+            </>
           )}
         </div>
 
@@ -355,11 +374,29 @@ export function CategorySidebar() {
           {topLevel.map((cat) => renderNode(cat, 0))}
         </div>
 
-        {/* 数据全平铺提示：让用户知道树形折叠功能存在 */}
-        {topLevel.length > 0 && !hasAnyChildren && (
-          <div className="mt-3 px-2 text-[11px] leading-relaxed text-slate-400">
-            提示：当前所有分类都是顶层。从浏览器导入嵌套的书签文件夹后，
-            这里会出现 <span className="font-bold text-slate-500">▶</span> 按钮，可点击展开下级。
+        {/* 数据状态诊断面板：让"折叠/展开为啥没反应"一目了然 */}
+        {topLevel.length > 0 && (
+          <div className="mt-3 px-2 text-[11px] leading-relaxed text-slate-400 border-t border-slate-200/60 dark:border-slate-700/60 pt-2">
+            <div className="flex items-center justify-between">
+              <span>分类总数</span>
+              <span className="tabular-nums text-slate-500">{categories.length}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>顶层分类</span>
+              <span className="tabular-nums text-slate-500">{topLevel.length}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>含子分类的</span>
+              <span className={cn(
+                'tabular-nums',
+                hasAnyChildren ? 'text-brand font-medium' : 'text-slate-400'
+              )}>{allParentIds.length}</span>
+            </div>
+            {!hasAnyChildren && (
+              <div className="mt-1.5 leading-snug">
+                还没有子分类，把鼠标悬停到任一分类上，点 <span className="font-bold text-slate-500">+</span> 即可创建子分类，立刻就能看到 <span className="font-bold text-slate-500">▶</span> 折叠按钮。
+              </div>
+            )}
           </div>
         )}
       </div>

@@ -18,7 +18,7 @@ interface BookmarkState {
   setActiveCategory: (id: string | null) => void
   setSearchKeyword: (kw: string) => void
 
-  addCategory: (name: string, icon?: string) => Promise<Category>
+  addCategory: (name: string, icon?: string, parentId?: string) => Promise<Category>
   renameCategory: (id: string, name: string) => Promise<void>
   removeCategory: (id: string) => Promise<void>
   removeCategories: (ids: string[]) => Promise<void>
@@ -101,13 +101,18 @@ export const useBookmarkStore = create<BookmarkState>((set, get) => ({
     set({ searchKeyword: kw })
   },
 
-  async addCategory(name, icon) {
+  async addCategory(name, icon, parentId) {
     const now = Date.now()
+    // order 取同一父级（顶层 = parentId 为空）下的现有数量，避免新分类排到陌生位置
+    const siblingCount = get().categories.filter(
+      (c) => (c.parentId ?? '') === (parentId ?? '')
+    ).length
     const cat: Category = {
       id: uuid(),
       name,
       icon,
-      order: get().categories.length,
+      parentId,
+      order: siblingCount,
       createdAt: now,
       updatedAt: now,
     }
