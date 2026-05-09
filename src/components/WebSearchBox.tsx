@@ -75,7 +75,7 @@ export function WebSearchBox() {
     <div ref={wrapRef} className="relative flex-1 max-w-xl mx-auto">
       <div
         className={cn(
-          'flex items-center gap-1 pl-2 pr-1 py-1 rounded-lg',
+          'flex items-center gap-1 h-9 pl-2 pr-1 rounded-lg',
           'border border-slate-200 dark:border-slate-700',
           'bg-white/60 dark:bg-slate-800/60 backdrop-blur',
           'focus-within:border-brand focus-within:ring-2 focus-within:ring-brand/20 transition-all',
@@ -86,7 +86,7 @@ export function WebSearchBox() {
           type="button"
           onClick={() => setOpen((v) => !v)}
           className={cn(
-            'flex items-center gap-1 pl-1.5 pr-1 py-1 rounded',
+            'flex items-center gap-1 h-7 px-1.5 rounded shrink-0',
             'text-xs text-slate-600 dark:text-slate-300',
             'hover:bg-slate-100 dark:hover:bg-slate-700/60 transition-colors',
           )}
@@ -98,10 +98,10 @@ export function WebSearchBox() {
             className="w-4 h-4 rounded-sm"
             onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = 'hidden' }}
           />
-          <span className="text-[10px] text-slate-400">▾</span>
+          <span className="text-[10px] text-slate-400 leading-none">▾</span>
         </button>
 
-        <div className="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-1" />
+        <div className="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-1 shrink-0" />
 
         <input
           value={query}
@@ -111,7 +111,7 @@ export function WebSearchBox() {
           }}
           placeholder={`使用 ${engine.name} 搜索网页…`}
           className={cn(
-            'flex-1 min-w-0 px-2 py-1 text-sm bg-transparent outline-none',
+            'flex-1 min-w-0 h-full px-2 text-sm bg-transparent outline-none',
             'placeholder:text-slate-400',
           )}
         />
@@ -120,7 +120,7 @@ export function WebSearchBox() {
           <button
             type="button"
             onClick={() => setQuery('')}
-            className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 px-1.5 text-xs"
+            className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 px-1.5 text-xs h-7 shrink-0"
             title="清空"
           >✕</button>
         )}
@@ -130,7 +130,7 @@ export function WebSearchBox() {
           onClick={submit}
           disabled={!query.trim()}
           className={cn(
-            'px-2.5 py-1 rounded text-xs font-medium transition-colors',
+            'h-7 px-2.5 rounded text-xs font-medium transition-colors shrink-0',
             query.trim()
               ? 'bg-brand text-white hover:bg-brand-600'
               : 'bg-slate-100 text-slate-400 dark:bg-slate-700 dark:text-slate-500 cursor-not-allowed',
