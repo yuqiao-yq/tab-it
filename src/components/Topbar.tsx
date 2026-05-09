@@ -1,9 +1,8 @@
 import { useBookmarkStore } from '../stores/useBookmarkStore'
 import { getRepository } from '../repositories'
+import { WebSearchBox } from './WebSearchBox'
 
 export function Topbar() {
-  const keyword = useBookmarkStore((s) => s.searchKeyword)
-  const setKeyword = useBookmarkStore((s) => s.setSearchKeyword)
   const importFromBrowser = useBookmarkStore((s) => s.importFromBrowser)
   const init = useBookmarkStore((s) => s.init)
 
@@ -42,16 +41,10 @@ export function Topbar() {
 
   return (
     <header className="flex items-center gap-3 px-4 py-3 border-b border-slate-200/60 dark:border-slate-700/60">
-      <h1 className="text-lg font-semibold text-brand">Tab It</h1>
-      <div className="flex-1 max-w-xl mx-auto">
-        <input
-          value={keyword}
-          onChange={(e) => setKeyword(e.target.value)}
-          placeholder="搜索书签..."
-          className="w-full px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white/60 dark:bg-slate-800/60 backdrop-blur outline-none focus:border-brand focus:ring-2 focus:ring-brand/20 transition-all"
-        />
-      </div>
-      <div className="flex items-center gap-2">
+      <h1 className="text-lg font-semibold text-brand shrink-0">Tab It</h1>
+      {/* 中央：网页搜索框（替代被覆盖的浏览器地址栏，支持切换搜索引擎） */}
+      <WebSearchBox />
+      <div className="flex items-center gap-2 shrink-0">
         <button onClick={importFromBrowser} className="btn-ghost" title="从浏览器导入书签">
           ↓ 浏览器书签
         </button>
