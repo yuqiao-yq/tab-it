@@ -11,10 +11,12 @@ import {
   arrayMove,
   rectSortingStrategy,
 } from '@dnd-kit/sortable'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
+import type { BookmarkCard, Category } from '../types/bookmark'
 import { useBookmarkStore } from '../stores/useBookmarkStore'
 import { BookmarkCardItem } from './BookmarkCardItem'
 import { FolderCard } from './FolderCard'
+import { cn } from '../utils/cn'
 
 const GRID_COLS =
   'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3'
@@ -24,70 +26,31 @@ export function BookmarkGrid() {
   const allCategories = useBookmarkStore((s) => s.categories)
   const activeCategoryId = useBookmarkStore((s) => s.activeCategoryId)
   const keyword = useBookmarkStore((s) => s.searchKeyword)
-  const reorder = useBookmarkStore((s) => s.reorderCardsInCategory)
-  const addCard = useBookmarkStore((s) => s.addCard)
 
   // 搜索模式：全库搜索书签（不显示文件夹）
   const isSearching = keyword.trim().length > 0
 
-  // 当前层的子文件夹（非搜索模式）
-  const subFolders = useMemo(() => {
-    if (isSearching || !activeCategoryId) return []
-    return allCategories
-      .filter((c) => c.parentId === activeCategoryId)
-      .sort((a, b) => a.order - b.order)
-  }, [allCategories, activeCategoryId, isSearching])
-
-  // 当前层的书签卡片（搜索模式下全库过滤）
-  const filteredCards = useMemo(() => {
-    if (isSearching) {
-      const kw = keyword.trim().toLowerCase()
-      return allCards
-        .filter(
-          (c) =>
-            c.title.toLowerCase().includes(kw) ||
-            c.url.toLowerCase().includes(kw)
-        )
-        .sort((a, b) => a.order - b.order)
-    }
-    if (!activeCategoryId) return []
+  // 当前层的搜索结果
+  const searchResultCards = useMemo(() => {
+    if (!isSearching) return []
+    const kw = keyword.trim().toLowerCase()
     return allCards
-      .filter((c) => c.categoryId === activeCategoryId)
+      .filter(
+        (c) =>
+          c.title.toLowerCase().includes(kw) ||
+          c.url.toLowerCase().includes(kw)
+      )
       .sort((a, b) => a.order - b.order)
-  }, [allCards, activeCategoryId, keyword, isSearching])
+  }, [allCards, keyword, isSearching])
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
-  )
-
-  const handleDragEnd = async (e: DragEndEvent) => {
-    const { active, over } = e
-    if (!over || active.id === over.id || !activeCategoryId || isSearching) return
-    const ids = filteredCards.map((c) => c.id)
-    const oldIdx = ids.indexOf(active.id as string)
-    const newIdx = ids.indexOf(over.id as string)
-    if (oldIdx === -1 || newIdx === -1) return
-    await reorder(activeCategoryId, arrayMove(ids, oldIdx, newIdx))
-  }
-
-  const handleAddCard = async () => {
-    if (!activeCategoryId) return
-    const url = window.prompt('请输入网址（URL）')
-    if (!url?.trim()) return
-    const title = window.prompt('请输入标题', url) || url
-    await addCard({ categoryId: activeCategoryId, title: title.trim(), url: url.trim() })
-  }
-
-  const isEmpty = subFolders.length === 0 && filteredCards.length === 0
-
-  // 搜索时简单展示，不需要拖拽
+  // 搜索模式：扁平展示
   if (isSearching) {
     return (
       <div className={GRID_COLS}>
-        {filteredCards.map((card) => (
+        {searchResultCards.map((card) => (
           <BookmarkCardItem key={card.id} card={card} />
         ))}
-        {filteredCards.length === 0 && (
+        {searchResultCards.length === 0 && (
           <div className="col-span-full text-center py-16 text-slate-400">
             没有找到匹配的书签
           </div>
@@ -96,58 +59,41 @@ export function BookmarkGrid() {
     )
   }
 
-  return (
-    <div className="flex flex-col gap-6">
-      {/* 子文件夹区 */}
-      {subFolders.length > 0 && (
-        <section>
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">
-            文件夹
-          </h3>
-          <div className={GRID_COLS}>
-            {subFolders.map((cat) => (
-              <FolderCard key={cat.id} category={cat} />
-            ))}
-          </div>
-        </section>
-      )}
+  if (!activeCategoryId) return null
 
-      {/* 书签卡片区（支持拖拽排序） */}
-      <section>
-        {subFolders.length > 0 && (
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">
-            书签
-          </h3>
-        )}
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragEnd={handleDragEnd}
-        >
-          <SortableContext
-            items={filteredCards.map((c) => c.id)}
-            strategy={rectSortingStrategy}
-          >
-            <div className={GRID_COLS}>
-              {filteredCards.map((card) => (
-                <BookmarkCardItem key={card.id} card={card} />
-              ))}
-              {activeCategoryId && (
-                <button
-                  onClick={handleAddCard}
-                  className="card flex items-center justify-center h-28 text-3xl text-slate-300 hover:text-brand hover:border-brand/50 transition-colors"
-                  title="新建书签"
-                >
-                  +
-                </button>
-              )}
-            </div>
-          </SortableContext>
-        </DndContext>
-      </section>
+  const activeCategory = allCategories.find((c) => c.id === activeCategoryId)
+  if (!activeCategory) return null
+
+  // DFS 收集当前 active 分类下的所有后代分类（按 order 排序），用于按 section 展示
+  const descendants = collectDescendantsDFS(activeCategoryId, allCategories)
+
+  // 当前层是否完全为空（无子文件夹、无直接书签、无后代）
+  const directCardCount = allCards.filter((c) => c.categoryId === activeCategoryId).length
+  const directFolderCount = allCategories.filter((c) => c.parentId === activeCategoryId).length
+  const isEmpty =
+    directCardCount === 0 && directFolderCount === 0 && descendants.length === 0
+
+  return (
+    <div className="flex flex-col gap-8">
+      {/* 当前分类（根 section） */}
+      <CategorySection
+        category={activeCategory}
+        showFolders
+        showHeader={false}
+      />
+
+      {/* 所有后代分类（递归 DFS）：每个作为独立 section */}
+      {descendants.map((cat) => (
+        <CategorySection
+          key={cat.id}
+          category={cat}
+          showFolders={false}
+          showHeader
+        />
+      ))}
 
       {/* 空状态 */}
-      {isEmpty && activeCategoryId && (
+      {isEmpty && (
         <div className="text-center py-12 text-slate-400">
           <div className="text-4xl mb-3">📭</div>
           <p className="text-sm">这里还没有内容，点击 + 添加书签</p>
@@ -155,4 +101,195 @@ export function BookmarkGrid() {
       )}
     </div>
   )
+}
+
+/* ─────────────────────────────────────────────────────────────
+ * CategorySection：单个分类的内容区块
+ * - showFolders：是否显示直接子文件夹卡片（仅根 section 显示，避免重复）
+ * - showHeader：是否显示 section 标题（根 section 由面包屑承担，不重复）
+ * ───────────────────────────────────────────────────────────── */
+interface SectionProps {
+  category: Category
+  showFolders: boolean
+  showHeader: boolean
+}
+
+function CategorySection({ category, showFolders, showHeader }: SectionProps) {
+  const allCards = useBookmarkStore((s) => s.cards)
+  const allCategories = useBookmarkStore((s) => s.categories)
+  const setActive = useBookmarkStore((s) => s.setActiveCategory)
+  const reorder = useBookmarkStore((s) => s.reorderCardsInCategory)
+  const addCard = useBookmarkStore((s) => s.addCard)
+
+  // section 自身的折叠状态（用于折叠子分类 section 的内容）
+  const [collapsed, setCollapsed] = useState(false)
+
+  const subFolders = useMemo(
+    () =>
+      showFolders
+        ? allCategories
+            .filter((c) => c.parentId === category.id)
+            .sort((a, b) => a.order - b.order)
+        : [],
+    [allCategories, category.id, showFolders],
+  )
+
+  const directCards = useMemo(
+    () =>
+      allCards
+        .filter((c) => c.categoryId === category.id)
+        .sort((a, b) => a.order - b.order),
+    [allCards, category.id],
+  )
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
+  )
+
+  const handleDragEnd = async (e: DragEndEvent) => {
+    const { active, over } = e
+    if (!over || active.id === over.id) return
+    const ids = directCards.map((c) => c.id)
+    const oldIdx = ids.indexOf(active.id as string)
+    const newIdx = ids.indexOf(over.id as string)
+    if (oldIdx === -1 || newIdx === -1) return
+    await reorder(category.id, arrayMove(ids, oldIdx, newIdx))
+  }
+
+  const handleAddCard = async () => {
+    const url = window.prompt('请输入网址（URL）')
+    if (!url?.trim()) return
+    const title = window.prompt('请输入标题', url) || url
+    await addCard({ categoryId: category.id, title: title.trim(), url: url.trim() })
+  }
+
+  // 计算相对 active 根的路径，用于 section 标题（如 "工作 / 项目A / 文档"）
+  const breadcrumbPath = useMemo(() => {
+    if (!showHeader) return ''
+    const map = new Map(allCategories.map((c) => [c.id, c]))
+    const parts: string[] = []
+    let cur: Category | undefined = category
+    while (cur) {
+      parts.unshift(cur.name)
+      cur = cur.parentId ? map.get(cur.parentId) : undefined
+    }
+    return parts.join(' / ')
+  }, [allCategories, category, showHeader])
+
+  // section 整体为空时（无子文件夹、无书签）也显示出来——保持目录结构可见
+  const sectionIsEmpty = subFolders.length === 0 && directCards.length === 0
+
+  return (
+    <section>
+      {showHeader && (
+        <header className="flex items-center gap-2 mb-3 group/sec">
+          <button
+            onClick={() => setCollapsed((v) => !v)}
+            title={collapsed ? '展开' : '折叠'}
+            className={cn(
+              'w-5 h-5 flex items-center justify-center text-[10px] rounded',
+              'text-slate-400 hover:text-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800',
+              'transition-transform duration-150',
+              collapsed ? '' : 'rotate-90',
+            )}
+          >
+            ▸
+          </button>
+          <span className="text-base leading-none">{category.icon ?? '📂'}</span>
+          <button
+            onClick={() => setActive(category.id)}
+            className="text-sm font-medium text-slate-700 dark:text-slate-200 hover:text-brand transition-colors truncate"
+            title={`进入：${breadcrumbPath}`}
+          >
+            {breadcrumbPath}
+          </button>
+          <span className="text-xs text-slate-400 tabular-nums">
+            {directCards.length > 0 && `${directCards.length} 个书签`}
+          </span>
+          <div className="flex-1 border-t border-dashed border-slate-200 dark:border-slate-700 ml-2" />
+          <button
+            onClick={handleAddCard}
+            className="opacity-0 group-hover/sec:opacity-100 transition-opacity btn-ghost !p-1 h-6 w-6 text-sm"
+            title="在此分类添加书签"
+          >+</button>
+        </header>
+      )}
+
+      {!collapsed && (
+        <>
+          {/* 直接子文件夹（仅根 section 显示） */}
+          {subFolders.length > 0 && (
+            <div className="mb-4">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">
+                文件夹
+              </h3>
+              <div className={GRID_COLS}>
+                {subFolders.map((cat) => (
+                  <FolderCard key={cat.id} category={cat} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 直接书签（支持拖拽排序） */}
+          {(directCards.length > 0 || !showHeader) && (
+            <div>
+              {showFolders && subFolders.length > 0 && (
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">
+                  书签
+                </h3>
+              )}
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleDragEnd}
+              >
+                <SortableContext
+                  items={directCards.map((c) => c.id)}
+                  strategy={rectSortingStrategy}
+                >
+                  <div className={GRID_COLS}>
+                    {directCards.map((card) => (
+                      <BookmarkCardItem key={card.id} card={card} />
+                    ))}
+                    {/* 仅在根 section 始终显示 + 按钮，子 section 由 header 上的 + 处理 */}
+                    {!showHeader && (
+                      <button
+                        onClick={handleAddCard}
+                        className="card flex items-center justify-center h-28 text-3xl text-slate-300 hover:text-brand hover:border-brand/50 transition-colors"
+                        title="新建书签"
+                      >
+                        +
+                      </button>
+                    )}
+                  </div>
+                </SortableContext>
+              </DndContext>
+            </div>
+          )}
+
+          {/* 子 section 完全为空时给一个柔和提示，保持目录结构可见 */}
+          {showHeader && sectionIsEmpty && (
+            <div className="text-xs text-slate-400 pl-7 pb-1">空文件夹</div>
+          )}
+        </>
+      )}
+    </section>
+  )
+}
+
+/** DFS 收集所有后代分类（不含自己），按 order 顺序遍历 */
+function collectDescendantsDFS(rootId: string, allCats: Category[]): Category[] {
+  const result: Category[] = []
+  const dfs = (parentId: string) => {
+    const children = allCats
+      .filter((c) => c.parentId === parentId)
+      .sort((a, b) => a.order - b.order)
+    for (const child of children) {
+      result.push(child)
+      dfs(child.id)
+    }
+  }
+  dfs(rootId)
+  return result
 }

@@ -18,17 +18,31 @@ export function CategorySidebar() {
   const [selectMode, setSelectMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
 
-  // 折叠状态
+  // 折叠整个侧栏
   const [collapsed, setCollapsed] = useState(false)
   // 过渡期间显示彩光
   const [animating, setAnimating] = useState(false)
+  // 树形节点的展开状态：存储已展开的分类 ID
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
 
   const handleToggle = () => {
     setAnimating(true)
     setCollapsed((v) => !v)
   }
 
+  const toggleExpand = (id: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
   const topLevel = categories.filter((c) => !c.parentId).sort((a, b) => a.order - b.order)
+
+  const childrenOf = (id: string) =>
+    categories.filter((c) => c.parentId === id).sort((a, b) => a.order - b.order)
 
   const countOf = (id: string): number => {
     const subIds = categories.filter((c) => c.parentId === id).map((c) => c.id)
@@ -63,9 +77,123 @@ export function CategorySidebar() {
   }
 
   const allSelected = selectedIds.size === topLevel.length && topLevel.length > 0
-  const isActiveUnder = (topCat: Category): boolean => {
-    if (activeId === topCat.id) return true
-    return collectDescendantIds([topCat.id], categories).has(activeId ?? '')
+
+  /** 递归渲染树节点 */
+  const renderNode = (cat: Category, depth: number): JSX.Element => {
+    const children = childrenOf(cat.id)
+    const hasChildren = children.length > 0
+    const isExpanded = expanded.has(cat.id)
+    const active = activeId === cat.id
+    const isSelected = selectedIds.has(cat.id)
+    // 选择模式下只允许操作顶层分类
+    const checkable = !cat.parentId
+
+    return (
+      <div key={cat.id}>
+        <div
+          className={cn(
+            'group flex items-center gap-1 pr-2 py-1.5 rounded-lg cursor-pointer transition-colors',
+            selectMode
+              ? checkable
+                ? isSelected ? 'bg-brand/10 dark:bg-brand/20' : 'hover:bg-slate-100 dark:hover:bg-slate-800'
+                : 'opacity-50 cursor-default'
+              : active ? 'bg-brand text-white' : 'hover:bg-slate-100 dark:hover:bg-slate-800',
+          )}
+          style={{ paddingLeft: 4 + depth * 12 }}
+          onClick={() => {
+            if (selectMode) { if (checkable) toggleSelect(cat.id); return }
+            setActive(cat.id)
+            // 点击有子节点的分类时自动展开，方便一次性看到下级
+            if (hasChildren && !isExpanded) toggleExpand(cat.id)
+          }}
+        >
+          {/* 展开/折叠按钮（无子节点时占位保持对齐） */}
+          {hasChildren ? (
+            <button
+              className={cn(
+                'w-4 h-4 flex items-center justify-center text-[10px] shrink-0 leading-none rounded',
+                'transition-transform duration-150',
+                isExpanded ? 'rotate-90' : '',
+                !selectMode && active
+                  ? 'text-white/80 hover:bg-white/10'
+                  : 'text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 dark:hover:bg-slate-700/60',
+              )}
+              onClick={(e) => { e.stopPropagation(); toggleExpand(cat.id) }}
+              title={isExpanded ? '折叠' : '展开'}
+            >
+              ▸
+            </button>
+          ) : (
+            <span className="w-4 shrink-0" />
+          )}
+
+          {selectMode && checkable ? (
+            <span className={cn(
+              'w-4 h-4 rounded border flex items-center justify-center text-[10px] shrink-0',
+              isSelected ? 'bg-brand border-brand text-white' : 'border-slate-300 dark:border-slate-600'
+            )}>{isSelected && '✓'}</span>
+          ) : (
+            <span className="shrink-0">{cat.icon ?? (depth === 0 ? '📁' : '📂')}</span>
+          )}
+
+          {editingId === cat.id ? (
+            <input
+              autoFocus
+              value={editingName}
+              onChange={(e) => setEditingName(e.target.value)}
+              onBlur={commitEdit}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') commitEdit()
+                if (e.key === 'Escape') setEditingId(null)
+              }}
+              onClick={(e) => e.stopPropagation()}
+              className="flex-1 min-w-0 bg-transparent outline-none text-sm"
+            />
+          ) : (
+            <span
+              className="flex-1 min-w-0 text-sm truncate"
+              title={cat.name}
+              onDoubleClick={(e) => {
+                if (selectMode) return
+                e.stopPropagation()
+                startEdit(cat.id, cat.name)
+              }}
+            >{cat.name}</span>
+          )}
+
+          <span className={cn(
+            'text-xs shrink-0 tabular-nums',
+            !selectMode && active ? 'text-white/70' : 'text-slate-400'
+          )}>
+            {countOf(cat.id)}
+          </span>
+
+          {!selectMode && (
+            <button
+              className={cn(
+                'opacity-0 group-hover:opacity-100 transition-opacity text-xs px-0.5 shrink-0',
+                active ? 'text-white/80' : 'text-slate-400 hover:text-red-500'
+              )}
+              onClick={async (e) => {
+                e.stopPropagation()
+                const msg = hasChildren
+                  ? `删除「${cat.name}」及其所有子文件夹和书签？`
+                  : `删除「${cat.name}」及其下所有书签？`
+                if (window.confirm(msg)) await removeCategory(cat.id)
+              }}
+              title="删除"
+            >✕</button>
+          )}
+        </div>
+
+        {/* 子节点：选择模式下不展开，避免操作语义混乱 */}
+        {hasChildren && isExpanded && !selectMode && (
+          <div>
+            {children.map((c) => renderNode(c, depth + 1))}
+          </div>
+        )}
+      </div>
+    )
   }
 
   return (
@@ -76,7 +204,7 @@ export function CategorySidebar() {
         'overflow-hidden',
         // 丝滑宽度过渡
         'transition-[width] duration-300 ease-in-out',
-        collapsed ? 'w-10' : 'w-56',
+        collapsed ? 'w-10' : 'w-60',
       )}
       onTransitionEnd={() => setAnimating(false)}
     >
@@ -111,24 +239,29 @@ export function CategorySidebar() {
         >
           ›
         </button>
-        {/* 折叠时小图标列 */}
+        {/* 折叠时小图标列（只显示顶层） */}
         <div className="flex flex-col gap-1 mt-1">
-          {topLevel.slice(0, 6).map((cat) => (
-            <button
-              key={cat.id}
-              onClick={() => { setCollapsed(false); setAnimating(true); setActive(cat.id) }}
-              title={cat.name}
-              className={cn(
-                'w-8 h-8 rounded-lg flex items-center justify-center text-sm',
-                'transition-colors',
-                isActiveUnder(cat)
-                  ? 'bg-brand text-white'
-                  : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800',
-              )}
-            >
-              {cat.icon ?? '📁'}
-            </button>
-          ))}
+          {topLevel.slice(0, 6).map((cat) => {
+            const inActivePath =
+              activeId === cat.id ||
+              collectDescendantIds([cat.id], categories).has(activeId ?? '')
+            return (
+              <button
+                key={cat.id}
+                onClick={() => { setCollapsed(false); setAnimating(true); setActive(cat.id) }}
+                title={cat.name}
+                className={cn(
+                  'w-8 h-8 rounded-lg flex items-center justify-center text-sm',
+                  'transition-colors',
+                  inActivePath
+                    ? 'bg-brand text-white'
+                    : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800',
+                )}
+              >
+                {cat.icon ?? '📁'}
+              </button>
+            )
+          })}
         </div>
       </div>
 
@@ -170,6 +303,22 @@ export function CategorySidebar() {
               </h2>
               <div className="flex items-center gap-0.5">
                 <button
+                  onClick={() => {
+                    // 一键展开/折叠所有有子节点的分类
+                    const allParentIds = categories
+                      .filter((c) => categories.some((x) => x.parentId === c.id))
+                      .map((c) => c.id)
+                    if (expanded.size >= allParentIds.length) {
+                      setExpanded(new Set())
+                    } else {
+                      setExpanded(new Set(allParentIds))
+                    }
+                  }}
+                  className="btn-ghost !p-1 h-6 w-6 text-xs"
+                  disabled={topLevel.length === 0}
+                  title="一键展开/折叠全部"
+                >⇅</button>
+                <button
                   onClick={enterSelectMode}
                   className="btn-ghost !p-1 h-6 w-6 text-xs"
                   disabled={topLevel.length === 0}
@@ -196,82 +345,7 @@ export function CategorySidebar() {
         )}
 
         <div className="flex flex-col gap-0.5 overflow-y-auto">
-          {topLevel.map((cat) => {
-            const active = isActiveUnder(cat)
-            const isSelected = selectedIds.has(cat.id)
-            const hasChildren = categories.some((c) => c.parentId === cat.id)
-
-            return (
-              <div
-                key={cat.id}
-                className={cn(
-                  'group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors',
-                  selectMode
-                    ? isSelected ? 'bg-brand/10 dark:bg-brand/20' : 'hover:bg-slate-100 dark:hover:bg-slate-800'
-                    : active ? 'bg-brand text-white' : 'hover:bg-slate-100 dark:hover:bg-slate-800'
-                )}
-                onClick={() => selectMode ? toggleSelect(cat.id) : setActive(cat.id)}
-              >
-                {selectMode ? (
-                  <span className={cn(
-                    'w-4 h-4 rounded border flex items-center justify-center text-[10px] shrink-0',
-                    isSelected ? 'bg-brand border-brand text-white' : 'border-slate-300 dark:border-slate-600'
-                  )}>{isSelected && '✓'}</span>
-                ) : (
-                  <span className="shrink-0">{cat.icon ?? '📁'}</span>
-                )}
-
-                {editingId === cat.id ? (
-                  <input
-                    autoFocus
-                    value={editingName}
-                    onChange={(e) => setEditingName(e.target.value)}
-                    onBlur={commitEdit}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') commitEdit()
-                      if (e.key === 'Escape') setEditingId(null)
-                    }}
-                    onClick={(e) => e.stopPropagation()}
-                    className="flex-1 min-w-0 bg-transparent outline-none text-sm"
-                  />
-                ) : (
-                  <span
-                    className="flex-1 min-w-0 text-sm truncate"
-                    title={cat.name}
-                    onDoubleClick={(e) => {
-                      if (selectMode) return
-                      e.stopPropagation()
-                      startEdit(cat.id, cat.name)
-                    }}
-                  >{cat.name}</span>
-                )}
-
-                <span className={cn(
-                  'text-xs shrink-0',
-                  !selectMode && active ? 'text-white/70' : 'text-slate-400'
-                )}>
-                  {countOf(cat.id)}
-                </span>
-
-                {!selectMode && (
-                  <button
-                    className={cn(
-                      'opacity-0 group-hover:opacity-100 transition-opacity text-xs px-0.5 shrink-0',
-                      active ? 'text-white/80' : 'text-slate-400 hover:text-red-500'
-                    )}
-                    onClick={async (e) => {
-                      e.stopPropagation()
-                      const msg = hasChildren
-                        ? `删除「${cat.name}」及其所有子文件夹和书签？`
-                        : `删除「${cat.name}」及其下所有书签？`
-                      if (window.confirm(msg)) await removeCategory(cat.id)
-                    }}
-                    title="删除"
-                  >✕</button>
-                )}
-              </div>
-            )
-          })}
+          {topLevel.map((cat) => renderNode(cat, 0))}
         </div>
       </div>
     </aside>
