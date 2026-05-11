@@ -417,8 +417,12 @@ export function CategorySidebar() {
             </>
           ) : (
             <>
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                分类
+              <h2
+                className="flex items-center justify-center w-6 h-6 text-slate-500"
+                title="分类"
+              >
+                <CategoriesIcon />
+                <span className="sr-only">分类</span>
               </h2>
               <div className="flex items-center gap-0.5">
                 <button
@@ -816,6 +820,30 @@ function SortableSidebarRow(props: RowProps) {
         <div>{renderChildren()}</div>
       )}
     </div>
+  )
+}
+
+/** 分类列表 icon（左侧三圆点 + 三横线，经典 list-menu 形态） */
+function CategoriesIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <line x1="9" y1="6" x2="20" y2="6" />
+      <line x1="9" y1="12" x2="20" y2="12" />
+      <line x1="9" y1="18" x2="20" y2="18" />
+      <circle cx="4.5" cy="6" r="1.2" fill="currentColor" stroke="none" />
+      <circle cx="4.5" cy="12" r="1.2" fill="currentColor" stroke="none" />
+      <circle cx="4.5" cy="18" r="1.2" fill="currentColor" stroke="none" />
+    </svg>
   )
 }
 
