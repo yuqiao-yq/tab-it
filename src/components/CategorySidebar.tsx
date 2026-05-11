@@ -427,7 +427,7 @@ export function CategorySidebar() {
                     else setExpanded(new Set(allParentIds))
                   }}
                   className={cn(
-                    'btn-ghost !px-1.5 h-6 text-[11px] leading-none whitespace-nowrap',
+                    'btn-ghost !p-1 h-6 w-6 flex items-center justify-center',
                     !hasAnyChildren && 'opacity-40 cursor-not-allowed',
                   )}
                   disabled={!hasAnyChildren}
@@ -438,8 +438,9 @@ export function CategorySidebar() {
                         ? '一键折叠全部子分类'
                         : '一键展开全部子分类'
                   }
+                  aria-label={allExpanded ? '一键折叠全部' : '一键展开全部'}
                 >
-                  {allExpanded ? '全收' : '全展'}
+                  {allExpanded ? <CollapseAllIcon /> : <ExpandAllIcon />}
                 </button>
                 <button
                   onClick={enterSelectMode}
@@ -815,6 +816,46 @@ function SortableSidebarRow(props: RowProps) {
         <div>{renderChildren()}</div>
       )}
     </div>
+  )
+}
+
+/** 双下箭头：一键展开全部（语义为"全部向下打开") */
+function ExpandAllIcon() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <polyline points="7 6 12 11 17 6" />
+      <polyline points="7 13 12 18 17 13" />
+    </svg>
+  )
+}
+
+/** 双上箭头：一键折叠全部（语义为"全部向上收起") */
+function CollapseAllIcon() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <polyline points="7 11 12 6 17 11" />
+      <polyline points="7 18 12 13 17 18" />
+    </svg>
   )
 }
 
