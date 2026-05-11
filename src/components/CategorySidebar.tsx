@@ -2,6 +2,8 @@ import { useState } from 'react'
 import type { Category } from '../types/bookmark'
 import { useBookmarkStore } from '../stores/useBookmarkStore'
 import { cn } from '../utils/cn'
+import { IconPicker } from './IconPicker'
+import { IconView } from '../utils/icon'
 
 // 每次 UI 改动时手动 +1，便于在页面右下角确认"是否加载到最新代码"
 const SIDEBAR_BUILD_TAG = 'v3-always-plus'
@@ -15,6 +17,7 @@ export function CategorySidebar() {
   const renameCategory = useBookmarkStore((s) => s.renameCategory)
   const removeCategory = useBookmarkStore((s) => s.removeCategory)
   const removeCategories = useBookmarkStore((s) => s.removeCategories)
+  const updateCategory = useBookmarkStore((s) => s.updateCategory)
 
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingName, setEditingName] = useState('')
@@ -150,7 +153,36 @@ export function CategorySidebar() {
               isSelected ? 'bg-brand border-brand text-white' : 'border-slate-300 dark:border-slate-600'
             )}>{isSelected && '✓'}</span>
           ) : (
-            <span className="shrink-0">{cat.icon ?? (depth === 0 ? '📁' : '📂')}</span>
+            <span
+              className="shrink-0"
+              onClick={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
+            >
+              <IconPicker
+                value={cat.icon}
+                defaultEmoji={depth === 0 ? '📁' : '📂'}
+                onChange={(icon) => void updateCategory(cat.id, { icon })}
+                trigger={(open) => (
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); open() }}
+                    title="点击修改图标"
+                    className={cn(
+                      'flex items-center justify-center w-5 h-5 rounded',
+                      'hover:bg-slate-200/70 dark:hover:bg-slate-700/60',
+                      !selectMode && active && 'hover:bg-white/20',
+                    )}
+                  >
+                    <IconView
+                      value={cat.icon}
+                      fallback={depth === 0 ? '📁' : '📂'}
+                      emojiClassName="text-base leading-none"
+                      imgClassName="w-4 h-4 rounded-sm object-contain"
+                    />
+                  </button>
+                )}
+              />
+            </span>
           )}
 
           {editingId === cat.id ? (
@@ -290,7 +322,12 @@ export function CategorySidebar() {
                     : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800',
                 )}
               >
-                {cat.icon ?? '📁'}
+                <IconView
+                  value={cat.icon}
+                  fallback="📁"
+                  emojiClassName="text-base leading-none"
+                  imgClassName="w-5 h-5 rounded-sm object-contain"
+                />
               </button>
             )
           })}

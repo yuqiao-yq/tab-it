@@ -5,6 +5,8 @@ import type { BookmarkCard } from '../types/bookmark'
 import { getFaviconUrl, getHostname } from '../utils/favicon'
 import { useBookmarkStore } from '../stores/useBookmarkStore'
 import { cn } from '../utils/cn'
+import { IconPicker } from './IconPicker'
+import { isImageIcon } from '../utils/icon'
 
 interface Props {
   card: BookmarkCard
@@ -37,6 +39,7 @@ export function BookmarkCardItem({ card }: Props) {
   const [editing, setEditing] = useState(false)
   const [draftTitle, setDraftTitle] = useState(card.title)
   const [draftUrl, setDraftUrl] = useState(card.url)
+  const [draftIcon, setDraftIcon] = useState<string | undefined>(card.icon)
   const titleInputRef = useRef<HTMLInputElement | null>(null)
 
   // 合并 ref（既给 dnd-kit，也给本组件用）
@@ -83,6 +86,7 @@ export function BookmarkCardItem({ card }: Props) {
   const startEdit = () => {
     setDraftTitle(card.title)
     setDraftUrl(card.url)
+    setDraftIcon(card.icon)
     setEditing(true)
   }
   const cancelEdit = () => {
@@ -93,11 +97,11 @@ export function BookmarkCardItem({ card }: Props) {
     const url = draftUrl.trim()
     if (!title || !url) return
     // 没有任何变化时直接退出，不写库
-    if (title === card.title && url === card.url) {
+    if (title === card.title && url === card.url && draftIcon === card.icon) {
       setEditing(false)
       return
     }
-    await updateCard(card.id, { title, url })
+    await updateCard(card.id, { title, url, icon: draftIcon })
     setEditing(false)
   }
 
@@ -119,7 +123,11 @@ export function BookmarkCardItem({ card }: Props) {
   const canSave =
     draftTitle.trim().length > 0 &&
     draftUrl.trim().length > 0 &&
-    (draftTitle.trim() !== card.title || draftUrl.trim() !== card.url)
+    (
+      draftTitle.trim() !== card.title ||
+      draftUrl.trim() !== card.url ||
+      draftIcon !== card.icon
+    )
 
   return (
     <div
@@ -142,14 +150,43 @@ export function BookmarkCardItem({ card }: Props) {
     >
       {/* 顶部：图标 + 标题/域名（或编辑表单） + hover 操作 */}
       <div className="flex items-start gap-2">
-        <img
-          src={card.icon || getFaviconUrl(draftUrl || card.url)}
-          alt=""
-          className="w-8 h-8 rounded shrink-0 bg-slate-100 dark:bg-slate-700 object-contain"
-          onError={(e) => {
-            ;(e.currentTarget as HTMLImageElement).style.visibility = 'hidden'
-          }}
-        />
+        {editing ? (
+          <div
+            onClick={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <IconPicker
+              value={draftIcon}
+              defaultEmoji="🔗"
+              onChange={(icon) => setDraftIcon(icon)}
+              trigger={(open) => (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); open() }}
+                  title="点击修改图标"
+                  className={cn(
+                    'w-8 h-8 rounded shrink-0 flex items-center justify-center',
+                    'bg-slate-100 dark:bg-slate-700 hover:ring-2 hover:ring-brand/40 transition',
+                  )}
+                >
+                  <CardIconView
+                    icon={draftIcon}
+                    fallbackUrl={draftUrl || card.url}
+                  />
+                </button>
+              )}
+            />
+          </div>
+        ) : (
+          <div
+            className={cn(
+              'w-8 h-8 rounded shrink-0 flex items-center justify-center',
+              'bg-slate-100 dark:bg-slate-700',
+            )}
+          >
+            <CardIconView icon={card.icon} fallbackUrl={card.url} />
+          </div>
+        )}
 
         {editing ? (
           <div className="flex-1 min-w-0 flex flex-col gap-1.5">
@@ -303,5 +340,39 @@ export function BookmarkCardItem({ card }: Props) {
         )}
       </div>
     </div>
+  )
+}
+
+/**
+ * 卡片图标统一渲染：
+ * - 用户自定义 icon 是 emoji/字符 → 文本展示
+ * - 用户自定义 icon 是 https:// 或 data:image/ → 图片展示
+ * - 没设置 → 走 favicon（基于 fallbackUrl）
+ */
+function CardIconView({
+  icon,
+  fallbackUrl,
+}: {
+  icon?: string
+  fallbackUrl: string
+}) {
+  if (icon && !isImageIcon(icon)) {
+    // emoji / 文本
+    return (
+      <span className="text-xl leading-none select-none" aria-hidden>
+        {icon}
+      </span>
+    )
+  }
+  const src = icon || getFaviconUrl(fallbackUrl)
+  return (
+    <img
+      src={src}
+      alt=""
+      className="w-7 h-7 rounded-sm object-contain"
+      onError={(e) => {
+        ;(e.currentTarget as HTMLImageElement).style.visibility = 'hidden'
+      }}
+    />
   )
 }

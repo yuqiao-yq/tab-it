@@ -20,6 +20,8 @@ interface BookmarkState {
 
   addCategory: (name: string, icon?: string, parentId?: string) => Promise<Category>
   renameCategory: (id: string, name: string) => Promise<void>
+  /** 通用更新：可改 icon / color / 任意字段（不能改 id/parentId 结构） */
+  updateCategory: (id: string, patch: Partial<Category>) => Promise<void>
   removeCategory: (id: string) => Promise<void>
   removeCategories: (ids: string[]) => Promise<void>
   reorderCategories: (orderedIds: string[]) => Promise<void>
@@ -171,9 +173,15 @@ export const useBookmarkStore = create<BookmarkState>((set, get) => ({
   },
 
   async renameCategory(id, name) {
+    await get().updateCategory(id, { name })
+  },
+
+  async updateCategory(id, patch) {
     const cat = get().categories.find((c) => c.id === id)
     if (!cat) return
-    const updated = { ...cat, name, updatedAt: Date.now() }
+    // 不允许通过此入口改 id（结构性字段交给专门的 reorder/remove）
+    const { id: _ignored, ...safePatch } = patch
+    const updated = { ...cat, ...safePatch, updatedAt: Date.now() }
     await getRepository().saveCategory(updated)
     set({
       categories: get().categories.map((c) => (c.id === id ? updated : c)),
