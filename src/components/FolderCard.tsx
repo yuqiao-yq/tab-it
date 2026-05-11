@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react'
 import type { Category } from '../types/bookmark'
 import { useBookmarkStore } from '../stores/useBookmarkStore'
 import { cn } from '../utils/cn'
@@ -13,7 +14,11 @@ interface Props {
  * 文件夹卡片：在内容区展示子分类，点击进入该分类层级。
  * 不参与拖拽排序（区别于书签卡片）。
  *
- * 左上角图标：点击弹出 IconPicker（emoji / URL / 上传），不会触发"打开文件夹"。
+ * 交互：
+ * - 左上角图标 → 点击弹出 IconPicker（emoji / URL / 上传），不会触发"打开文件夹"
+ * - 右上角 ⋮ → 重命名 / 删除
+ * - 重命名：与书签卡片同款的"就地编辑"——名称变成 input，
+ *   Enter 保存 / Esc 取消 / blur 保存；编辑期间卡片 click 被禁用，避免误打开
  */
 export function FolderCard({ category }: Props) {
   const setActive = useBookmarkStore((s) => s.setActiveCategory)
@@ -26,17 +31,54 @@ export function FolderCard({ category }: Props) {
   const directCards = cards.filter((c) => c.categoryId === category.id).length
   const subFolders = categories.filter((c) => c.parentId === category.id).length
 
+  // ─── 就地重命名 ───────────────────────────────
+  const [renaming, setRenaming] = useState(false)
+  const [draftName, setDraftName] = useState(category.name)
+  const nameInputRef = useRef<HTMLInputElement | null>(null)
+
+  useEffect(() => {
+    if (renaming) {
+      // focus 后整段高亮，方便直接覆盖输入
+      nameInputRef.current?.focus()
+      nameInputRef.current?.select()
+    }
+  }, [renaming])
+
+  const startRename = () => {
+    setDraftName(category.name)
+    setRenaming(true)
+  }
+  const cancelRename = () => {
+    setDraftName(category.name)
+    setRenaming(false)
+  }
+  const commitRename = () => {
+    const name = draftName.trim()
+    // 空名 / 无变化 → 视为取消
+    if (!name || name === category.name) {
+      cancelRename()
+      return
+    }
+    void updateCategory(category.id, { name })
+    setRenaming(false)
+  }
+
   return (
     <div
       className={cn(
-        'card group p-3 cursor-pointer select-none h-28',
+        'card group p-3 select-none h-28',
         'flex flex-col justify-between',
-        'hover:border-brand/40 hover:shadow-brand/10'
+        renaming
+          ? 'cursor-default ring-2 ring-brand/40 shadow-md'
+          : 'cursor-pointer hover:border-brand/40 hover:shadow-brand/10',
       )}
-      onClick={() => setActive(category.id)}
-      title={`打开文件夹：${category.name}`}
+      onClick={() => {
+        if (renaming) return
+        setActive(category.id)
+      }}
+      title={renaming ? undefined : `打开文件夹：${category.name}`}
     >
-      {/* 上半：图标（点击换图标） + 删除按钮 */}
+      {/* 上半：图标（点击换图标） + ⋮ 菜单 */}
       <div className="flex items-start justify-between">
         <div
           onClick={(e) => e.stopPropagation()}
@@ -66,51 +108,70 @@ export function FolderCard({ category }: Props) {
             )}
           />
         </div>
-        <div
-          className="opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity"
-          onClick={(e) => e.stopPropagation()}
-          onPointerDown={(e) => e.stopPropagation()}
-        >
-          <CardMenu
-            ariaLabel={`文件夹「${category.name}」操作菜单`}
-            items={[
-              {
-                key: 'rename',
-                label: '重命名',
-                icon: <MenuIcons.Edit />,
-                onSelect: () => {
-                  const next = window.prompt('重命名文件夹', category.name)
-                  if (next === null) return
-                  const name = next.trim()
-                  if (!name || name === category.name) return
-                  void updateCategory(category.id, { name })
+        {!renaming && (
+          <div
+            className="opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity"
+            onClick={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <CardMenu
+              ariaLabel={`文件夹「${category.name}」操作菜单`}
+              items={[
+                {
+                  key: 'rename',
+                  label: '重命名',
+                  icon: <MenuIcons.Edit />,
+                  onSelect: startRename,
                 },
-              },
-              {
-                key: 'delete',
-                label: '删除',
-                icon: <MenuIcons.Trash />,
-                danger: true,
-                onSelect: () => {
-                  const hasChildren = categories.some(
-                    (c) => c.parentId === category.id,
-                  )
-                  const msg = hasChildren
-                    ? `删除文件夹「${category.name}」及其所有子文件夹和书签？`
-                    : `删除文件夹「${category.name}」及其下所有书签？`
-                  if (window.confirm(msg)) void removeCategory(category.id)
+                {
+                  key: 'delete',
+                  label: '删除',
+                  icon: <MenuIcons.Trash />,
+                  danger: true,
+                  onSelect: () => {
+                    const hasChildren = categories.some(
+                      (c) => c.parentId === category.id,
+                    )
+                    const msg = hasChildren
+                      ? `删除文件夹「${category.name}」及其所有子文件夹和书签？`
+                      : `删除文件夹「${category.name}」及其下所有书签？`
+                    if (window.confirm(msg)) void removeCategory(category.id)
+                  },
                 },
-              },
-            ]}
-          />
-        </div>
+              ]}
+            />
+          </div>
+        )}
       </div>
 
-      {/* 下半：名称 + 数量 */}
+      {/* 下半：名称（或就地编辑 input） + 数量 */}
       <div>
-        <div className="text-sm font-medium truncate" title={category.name}>
-          {category.name}
-        </div>
+        {renaming ? (
+          <input
+            ref={nameInputRef}
+            value={draftName}
+            onChange={(e) => setDraftName(e.target.value)}
+            onClick={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+            onBlur={commitRename}
+            onKeyDown={(e) => {
+              e.stopPropagation()
+              if (e.key === 'Enter') commitRename()
+              if (e.key === 'Escape') cancelRename()
+            }}
+            placeholder="文件夹名称"
+            className={cn(
+              'w-full text-sm font-medium px-2 py-1 rounded',
+              'bg-white dark:bg-slate-900',
+              'border border-slate-200 dark:border-slate-700',
+              'focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand/30',
+            )}
+          />
+        ) : (
+          <div className="text-sm font-medium truncate" title={category.name}>
+            {category.name}
+          </div>
+        )}
         <div className="text-xs text-slate-400 mt-0.5">
           {[
             subFolders > 0 && `${subFolders} 个文件夹`,
