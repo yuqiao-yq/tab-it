@@ -64,18 +64,32 @@ export function CategorySidebar() {
   // ─── 侧栏宽度（可拖拽调整） ─────────────────────────
   // 持久化值放在 settings.sidebarWidth；这里维护一份本地 state，
   // 拖拽中实时更新（高频），松手时再持久化（低频）。
+  //
+  // ⚠ 时序坑（已修复）：
+  //   App 首次 mount 时 store.init() 还没完成，savedSidebarWidth = undefined，
+  //   这时如果用 useEffect([resizing]) 自动持久化会立即把 240 默认值写入 storage，
+  //   覆盖之前真实保存的宽度（例如 320）。
+  //   修复方案：拖拽 / 双击 这两个用户行为里**显式调用** updateSettings，
+  //   不再依赖 useEffect 的隐式触发。useRef 用来在 pointerup 闭包里拿到最新宽度。
   const [sidebarWidth, setSidebarWidth] = useState<number>(
     () => clampSidebarWidth(savedSidebarWidth ?? SIDEBAR_WIDTH_DEFAULT),
   )
+  const sidebarWidthRef = useRef(sidebarWidth)
+  sidebarWidthRef.current = sidebarWidth
   // 是否正在拖拽 → 拖拽中关闭 width 过渡，否则会跟手抖动
   const [resizing, setResizing] = useState(false)
 
-  // settings.sidebarWidth 异步加载完成后回填一次（首次 init 时本地 state 拿到的是默认值）
+  // settings.sidebarWidth 异步加载完成后回填一次（首次 init 时本地 state 拿到的是默认值）。
+  // 注意：拖拽过程中不要被外部回填覆盖（pointerup 后 updateSettings 会让 saved 变化，
+  // 此时 saved === local，setSidebarWidth(saved) 等价 no-op，但仍要 guard 拖拽态以防万一）。
   useEffect(() => {
-    if (typeof savedSidebarWidth === 'number') {
-      setSidebarWidth(clampSidebarWidth(savedSidebarWidth))
+    if (resizing) return
+    if (typeof savedSidebarWidth !== 'number') return
+    const next = clampSidebarWidth(savedSidebarWidth)
+    if (next !== sidebarWidthRef.current) {
+      setSidebarWidth(next)
     }
-  }, [savedSidebarWidth])
+  }, [savedSidebarWidth, resizing])
 
   // 全局监听 pointermove/up：避免拖到侧栏外面失焦后无法继续拖
   useEffect(() => {
@@ -86,6 +100,11 @@ export function CategorySidebar() {
     }
     const onUp = () => {
       setResizing(false)
+      // 松手即持久化：用 ref 拿最新宽度，避免闭包 stale
+      // 折叠态不覆盖展开偏好（理论上 resizing=true 时不会折叠，这里 guard 仅是兜底）
+      if (!collapsed) {
+        void updateSettings({ sidebarWidth: sidebarWidthRef.current })
+      }
     }
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
@@ -102,17 +121,7 @@ export function CategorySidebar() {
       document.body.style.userSelect = prevUserSelect
       document.body.style.cursor = prevCursor
     }
-  }, [resizing])
-
-  // 拖拽刚结束时把最终宽度持久化到 settings；resizing 期间频繁写入会触发大量 storage I/O
-  useEffect(() => {
-    if (resizing) return
-    if (collapsed) return // 折叠态不覆盖展开偏好
-    if (savedSidebarWidth === sidebarWidth) return
-    void updateSettings({ sidebarWidth })
-    // 仅在 resizing 状态变化结束后触发；不依赖 sidebarWidth/savedSidebarWidth 变更
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resizing])
+  }, [resizing, collapsed, updateSettings])
 
   const handleResizeStart = (e: React.PointerEvent) => {
     e.preventDefault()
