@@ -144,8 +144,8 @@ export function BookmarkCardItem({ card }: Props) {
         'card group p-3 select-none',
         'flex flex-col gap-2',
         editing
-          ? 'cursor-default min-h-32 ring-2 ring-brand/40 shadow-md'
-          : 'cursor-pointer h-32 hover:border-brand/40 hover:shadow-brand/10',
+          ? 'cursor-default min-h-24 ring-2 ring-brand/40 shadow-md'
+          : 'cursor-pointer h-24 hover:border-brand/40 hover:shadow-brand/10',
       )}
       title={editing ? undefined : `点击打开：${card.url}`}
     >

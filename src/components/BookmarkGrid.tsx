@@ -256,7 +256,7 @@ function CategorySection({ category, showFolders, showHeader }: SectionProps) {
                     {!showHeader && (
                       <button
                         onClick={handleAddCard}
-                        className="card flex items-center justify-center h-32 text-3xl text-slate-300 hover:text-brand hover:border-brand/50 transition-colors"
+                        className="card flex items-center justify-center h-24 text-3xl text-slate-300 hover:text-brand hover:border-brand/50 transition-colors"
                         title="新建书签"
                       >
                         +

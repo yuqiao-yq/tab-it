@@ -102,8 +102,8 @@ export function FolderCard({ category }: Props) {
         'card group p-3 select-none',
         'flex flex-col gap-2',
         renaming
-          ? 'cursor-default min-h-32 ring-2 ring-brand/40 shadow-md'
-          : 'cursor-pointer h-32 hover:border-brand/40 hover:shadow-brand/10',
+          ? 'cursor-default min-h-24 ring-2 ring-brand/40 shadow-md'
+          : 'cursor-pointer h-24 hover:border-brand/40 hover:shadow-brand/10',
       )}
       onClick={() => {
         if (renaming) return
