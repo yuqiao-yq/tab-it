@@ -68,7 +68,8 @@ export function RecentSection() {
           className={cn(
             'w-7 h-7 flex items-center justify-center text-base rounded',
             'text-slate-500 hover:text-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800',
-            'transition-transform duration-150',
+            // 仅 hover 整行 header 时显示，避免视觉噪音
+            'opacity-0 group-hover/sec:opacity-100 focus-visible:opacity-100 transition-[opacity,transform] duration-150',
             collapsed ? '' : 'rotate-90',
           )}
         >
