@@ -204,8 +204,8 @@ function CategorySection({
             onClick={() => setCollapsed((v) => !v)}
             title={collapsed ? '展开' : '折叠'}
             className={cn(
-              'w-5 h-5 flex items-center justify-center text-[10px] rounded',
-              'text-slate-400 hover:text-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800',
+              'w-7 h-7 flex items-center justify-center text-base rounded',
+              'text-slate-500 hover:text-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800',
               'transition-transform duration-150',
               collapsed ? '' : 'rotate-90',
             )}
@@ -240,8 +240,8 @@ function CategorySection({
             onClick={() => setCollapsed((v) => !v)}
             title={collapsed ? '展开' : '折叠'}
             className={cn(
-              'w-5 h-5 flex items-center justify-center text-[10px] rounded',
-              'text-slate-400 hover:text-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800',
+              'w-7 h-7 flex items-center justify-center text-base rounded',
+              'text-slate-500 hover:text-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800',
               'transition-transform duration-150',
               collapsed ? '' : 'rotate-90',
             )}
