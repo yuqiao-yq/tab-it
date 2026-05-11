@@ -62,30 +62,76 @@ export const useBookmarkStore = create<BookmarkState>((set, get) => ({
   async importFromBrowser() {
     set({ loading: true })
     try {
-      const { categories, cards } = await importFromBrowserBookmarks()
+      const { categories: imported, cards: importedCards } =
+        await importFromBrowserBookmarks()
       const repo = getRepository()
+      const existingCats = await repo.getCategories()
+      const existingCards = await repo.getCards()
 
-      // 合并策略：按"分类名"去重，保留已存在的分类，仅新增未出现过的
-      const existing = await repo.getCategories()
-      const existingNames = new Set(existing.map((c) => c.name))
-      const newCategories = categories.filter((c) => !existingNames.has(c.name))
+      // ─── 分类合并：按「同父级 + 同名」匹配 ───────────────────────
+      // 早期版本只按 name 匹配会出两个问题：
+      // 1) 同名异级（"杂项"在不同父级下）会被错误合并
+      // 2) 新建分类的 parentId 若指向"已被命中复用的旧分类"，
+      //    没做 remap → 新分类成了孤儿（parentId 指向不存在的 uuid）
+      //    → 表现为「删了某文件夹后再导入，看不到这个文件夹」
+      //
+      // 这里改用 BFS 按层级处理：父级先确定 finalId，子级再据此匹配。
+      const importedByParent = groupBy(imported, (c) => c.parentId ?? '')
+      const existingByParent = groupBy(existingCats, (c) => c.parentId ?? '')
 
-      // 把卡片中指向"已存在分类"的 categoryId 重新指向 existing 里的同名分类
-      const nameToExistingId = new Map(existing.map((c) => [c.name, c.id]))
-      const newIdToOldId = new Map<string, string>()
-      for (const newCat of categories) {
-        const existed = nameToExistingId.get(newCat.name)
-        if (existed) newIdToOldId.set(newCat.id, existed)
+      const newIdToFinalId = new Map<string, string>()
+      const catsToCreate: Category[] = []
+
+      const queue: (string | undefined)[] = [undefined] // 顶层
+      while (queue.length > 0) {
+        const importedParent = queue.shift()
+        // 该 importedParent 在最终数据中对应的 parentId
+        // - 顶层（importedParent 为 undefined）→ undefined
+        // - 否则查 newIdToFinalId
+        const finalParent = importedParent
+          ? newIdToFinalId.get(importedParent)
+          : undefined
+
+        const siblings = importedByParent.get(importedParent ?? '') ?? []
+        const existingSiblings =
+          existingByParent.get(finalParent ?? '') ?? []
+        const existingByName = new Map(
+          existingSiblings.map((c) => [c.name, c]),
+        )
+
+        for (const newCat of siblings) {
+          const hit = existingByName.get(newCat.name)
+          if (hit) {
+            // 已存在同父同名分类 → 复用旧 id，不重复创建
+            newIdToFinalId.set(newCat.id, hit.id)
+          } else {
+            // 新分类：保留新 uuid，但 parentId 必须指向最终 id
+            newIdToFinalId.set(newCat.id, newCat.id)
+            catsToCreate.push({ ...newCat, parentId: finalParent })
+          }
+          // 当前节点入队，处理其子层
+          queue.push(newCat.id)
+        }
       }
-      const remappedCards = cards.map((card) =>
-        newIdToOldId.has(card.categoryId)
-          ? { ...card, categoryId: newIdToOldId.get(card.categoryId)! }
-          : card
+
+      // ─── 卡片合并：按 (categoryId, url) 去重 ──────────────────────
+      // 早期版本按 card.id upsert，但 importer 每次都生成新 uuid，
+      // 导致已经导过的书签每次都会作为新记录追加 → 重复。
+      const remappedCards = importedCards.map((card) => ({
+        ...card,
+        categoryId:
+          newIdToFinalId.get(card.categoryId) ?? card.categoryId,
+      }))
+      const existingKey = new Set(
+        existingCards.map((c) => `${c.categoryId}::${c.url}`),
+      )
+      const cardsToAdd = remappedCards.filter(
+        (c) => !existingKey.has(`${c.categoryId}::${c.url}`),
       )
 
-      // 用批量方法一次性写入，避免并发"读-改-写"竞态
-      await repo.saveCategories(newCategories)
-      await repo.saveCards(remappedCards)
+      // ─── 写入 ────────────────────────────────────────────────
+      if (catsToCreate.length > 0) await repo.saveCategories(catsToCreate)
+      if (cardsToAdd.length > 0) await repo.saveCards(cardsToAdd)
 
       await get().init()
     } finally {
@@ -255,4 +301,16 @@ function collectDescendantIds(ids: string[], allCats: Category[]): Set<string> {
     }
   }
   return result
+}
+
+/** 简易 groupBy：按 keyFn 分桶 */
+function groupBy<T, K>(arr: T[], keyFn: (item: T) => K): Map<K, T[]> {
+  const map = new Map<K, T[]>()
+  for (const item of arr) {
+    const k = keyFn(item)
+    const list = map.get(k)
+    if (list) list.push(item)
+    else map.set(k, [item])
+  }
+  return map
 }
