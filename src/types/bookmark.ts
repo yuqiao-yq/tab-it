@@ -12,6 +12,8 @@ export interface Category {
   name: string
   icon?: string   // emoji 或图标名
   color?: string  // hex 色值
+  /** 用户自定义备注/描述（与书签卡同款 UX，鼠标 hover 时可添加） */
+  description?: string
   /** 父分类 ID；undefined 或空字符串表示顶层 */
   parentId?: string
   order: number
