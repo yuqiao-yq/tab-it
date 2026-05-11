@@ -4,6 +4,24 @@ import type { BookmarkCard, Category } from '../types/bookmark'
 import { getRepository } from '../repositories'
 import { importFromBrowserBookmarks } from '../services/bookmarkImporter'
 
+/** chrome.storage.local key（与 LocalRepository 的 KEYS 平级，专给"最近使用"使用） */
+const RECENT_ENTRIES_KEY = 'tabit:recent'
+const RECENT_LIMIT_KEY = 'tabit:recentLimit'
+/** 默认显示数量；用户可在 RecentSection 中修改并持久化 */
+export const DEFAULT_RECENT_LIMIT = 8
+/** 内存中保留的最大条目数：留出余量，方便用户调大 N 时仍能显示历史；显示时再切片 */
+const MAX_RECENT_BUFFER = 100
+
+/**
+ * 最近使用记录：
+ * - cardId: 引用 BookmarkCard.id；卡片被删除时会同步清理
+ * - openedAt: 打开时间戳（ms），用于排序与去重决策
+ */
+export interface RecentEntry {
+  cardId: string
+  openedAt: number
+}
+
 interface BookmarkState {
   categories: Category[]
   cards: BookmarkCard[]
@@ -11,6 +29,11 @@ interface BookmarkState {
   searchKeyword: string
   loading: boolean
   initialized: boolean
+
+  /** 「最近使用」记录：按 openedAt 倒序（最新在前） */
+  recentEntries: RecentEntry[]
+  /** 「最近使用」展示的最大条目数（缓冲区可能多于此值） */
+  recentLimit: number
 
   // ----- actions -----
   init: () => Promise<void>
@@ -51,6 +74,13 @@ interface BookmarkState {
   removeCard: (id: string) => Promise<void>
   moveCard: (cardId: string, targetCategoryId: string, targetIndex: number) => Promise<void>
   reorderCardsInCategory: (categoryId: string, orderedIds: string[]) => Promise<void>
+
+  /** 记录一次"打开书签"，用于"最近使用"模块；自动去重并截断到 buffer 上限 */
+  recordRecentOpen: (cardId: string) => Promise<void>
+  /** 修改最近使用展示数量（持久化） */
+  setRecentLimit: (n: number) => Promise<void>
+  /** 清空所有最近使用记录 */
+  clearRecent: () => Promise<void>
 }
 
 export const useBookmarkStore = create<BookmarkState>((set, get) => ({
@@ -60,21 +90,29 @@ export const useBookmarkStore = create<BookmarkState>((set, get) => ({
   searchKeyword: '',
   loading: false,
   initialized: false,
+  recentEntries: [],
+  recentLimit: DEFAULT_RECENT_LIMIT,
 
   async init() {
     set({ loading: true })
     const repo = getRepository()
-    const [categories, cards] = await Promise.all([
+    const [categories, cards, recent] = await Promise.all([
       repo.getCategories(),
       repo.getCards(),
+      loadRecentFromStorage(),
     ])
     // 默认激活：排序第一的【顶层】分类（与用户在侧栏看到的"第一项"对齐）
     // categories 已按 order 排序，但可能子级与顶层混杂，需显式取顶层
     const firstTop = categories.find((c) => !c.parentId)
+    // 清理脏数据：卡片可能已被删除
+    const cardIdSet = new Set(cards.map((c) => c.id))
+    const cleanedEntries = recent.entries.filter((e) => cardIdSet.has(e.cardId))
     set({
       categories,
       cards,
       activeCategoryId: firstTop?.id ?? categories[0]?.id ?? null,
+      recentEntries: cleanedEntries,
+      recentLimit: recent.limit,
       loading: false,
       initialized: true,
     })
@@ -215,12 +253,29 @@ export const useBookmarkStore = create<BookmarkState>((set, get) => ({
     if (ids.length === 0) return
     // 本地同样要收集所有后代，保证内存状态与持久化一致
     const allCats = get().categories
+    const allCards = get().cards
     const allDeleteIds = collectDescendantIds(ids, allCats)
     await getRepository().deleteCategories(ids)   // repo 内部会级联
     const remaining = allCats.filter((c) => !allDeleteIds.has(c.id))
+    const remainingCards = allCards.filter(
+      (c) => !allDeleteIds.has(c.categoryId),
+    )
+    // 同步清理"最近使用"中已被级联删除的卡片
+    const removedCardIds = new Set(
+      allCards
+        .filter((c) => allDeleteIds.has(c.categoryId))
+        .map((c) => c.id),
+    )
+    const nextRecent = get().recentEntries.filter(
+      (e) => !removedCardIds.has(e.cardId),
+    )
+    if (nextRecent.length !== get().recentEntries.length) {
+      void saveRecentEntries(nextRecent)
+    }
     set({
       categories: remaining,
-      cards: get().cards.filter((c) => !allDeleteIds.has(c.categoryId)),
+      cards: remainingCards,
+      recentEntries: nextRecent,
       activeCategoryId: allDeleteIds.has(get().activeCategoryId ?? '')
         ? remaining[0]?.id ?? null
         : get().activeCategoryId,
@@ -345,7 +400,14 @@ export const useBookmarkStore = create<BookmarkState>((set, get) => ({
 
   async removeCard(id) {
     await getRepository().deleteCard(id)
-    set({ cards: get().cards.filter((c) => c.id !== id) })
+    // 同步清理"最近使用"，避免出现指向已删卡片的脏记录
+    const nextRecent = get().recentEntries.filter((e) => e.cardId !== id)
+    const recentChanged = nextRecent.length !== get().recentEntries.length
+    if (recentChanged) void saveRecentEntries(nextRecent)
+    set({
+      cards: get().cards.filter((c) => c.id !== id),
+      recentEntries: nextRecent,
+    })
   },
 
   async moveCard(cardId, targetCategoryId, targetIndex) {
@@ -389,6 +451,34 @@ export const useBookmarkStore = create<BookmarkState>((set, get) => ({
     )
     set({ cards })
   },
+
+  async recordRecentOpen(cardId) {
+    // 卡片必须存在；若已被删除则忽略，避免脏记录
+    if (!get().cards.some((c) => c.id === cardId)) return
+    const now = Date.now()
+    // 去重：移除已有记录后追加新记录到最前
+    const filtered = get().recentEntries.filter((e) => e.cardId !== cardId)
+    const next: RecentEntry[] = [{ cardId, openedAt: now }, ...filtered].slice(
+      0,
+      MAX_RECENT_BUFFER,
+    )
+    set({ recentEntries: next })
+    await saveRecentEntries(next)
+  },
+
+  async setRecentLimit(n) {
+    // 合理边界：1 ~ MAX_RECENT_BUFFER
+    const clamped = Math.max(1, Math.min(MAX_RECENT_BUFFER, Math.floor(n)))
+    if (clamped === get().recentLimit) return
+    set({ recentLimit: clamped })
+    await chrome.storage.local.set({ [RECENT_LIMIT_KEY]: clamped })
+  },
+
+  async clearRecent() {
+    if (get().recentEntries.length === 0) return
+    set({ recentEntries: [] })
+    await saveRecentEntries([])
+  },
 }))
 
 /** BFS 收集所有后代分类 ID（与 LocalRepository 中的逻辑对称） */
@@ -417,4 +507,44 @@ function groupBy<T, K>(arr: T[], keyFn: (item: T) => K): Map<K, T[]> {
     else map.set(k, [item])
   }
   return map
+}
+
+/**
+ * 从 chrome.storage.local 读取「最近使用」相关数据。
+ * 故意走 chrome.storage 直接访问而不扩 BookmarkRepository 接口：
+ * - recent 数据是用户在本扩展内的临时行为日志，与"书签数据"语义不同
+ * - 后续如要同步到云端，可单独抽 RecentRepository
+ */
+async function loadRecentFromStorage(): Promise<{
+  entries: RecentEntry[]
+  limit: number
+}> {
+  try {
+    const result = await chrome.storage.local.get([
+      RECENT_ENTRIES_KEY,
+      RECENT_LIMIT_KEY,
+    ])
+    const raw = result[RECENT_ENTRIES_KEY]
+    const entries = Array.isArray(raw)
+      ? (raw as RecentEntry[]).filter(
+          (e) => e && typeof e.cardId === 'string' && typeof e.openedAt === 'number',
+        )
+      : []
+    const limitRaw = result[RECENT_LIMIT_KEY]
+    const limit =
+      typeof limitRaw === 'number' && limitRaw > 0
+        ? Math.min(MAX_RECENT_BUFFER, Math.floor(limitRaw))
+        : DEFAULT_RECENT_LIMIT
+    return { entries, limit }
+  } catch {
+    return { entries: [], limit: DEFAULT_RECENT_LIMIT }
+  }
+}
+
+async function saveRecentEntries(entries: RecentEntry[]): Promise<void> {
+  try {
+    await chrome.storage.local.set({ [RECENT_ENTRIES_KEY]: entries })
+  } catch {
+    // chrome.storage 偶发失败不影响内存状态
+  }
 }

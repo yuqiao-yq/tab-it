@@ -11,6 +11,11 @@ import { CardMenu, MenuIcons, type CardMenuItem } from './CardMenu'
 
 interface Props {
   card: BookmarkCard
+  /**
+   * 是否参与 dnd-kit 排序拖拽。默认 true（在 BookmarkGrid 的常规分类区域使用）。
+   * "最近使用"模块需要传 false：顺序由 openedAt 决定，不允许用户手动排序。
+   */
+  draggable?: boolean
 }
 
 /**
@@ -26,12 +31,14 @@ interface Props {
  *   - 已有备注 → 直接展示备注文本（最多 2 行），点击进入编辑
  *   - 无备注  → 展示低调的「+ 添加备注」占位按钮
  */
-export function BookmarkCardItem({ card }: Props) {
+export function BookmarkCardItem({ card, draggable = true }: Props) {
   const removeCard = useBookmarkStore((s) => s.removeCard)
   const updateCard = useBookmarkStore((s) => s.updateCard)
+  const recordRecentOpen = useBookmarkStore((s) => s.recordRecentOpen)
 
+  // disabled 让 useSortable 不响应拖拽，但仍保留 ref 用于其他逻辑（最近使用模块场景）
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id: card.id })
+    useSortable({ id: card.id, disabled: !draggable })
 
   const cardRef = useRef<HTMLDivElement | null>(null)
   const draggedRecently = useRef(false)
@@ -81,6 +88,8 @@ export function BookmarkCardItem({ card }: Props) {
 
   const openUrl = () => {
     if (draggedRecently.current) return
+    // 记录"最近使用"——这是用户在本扩展内主动打开书签的唯一入口
+    void recordRecentOpen(card.id)
     window.open(card.url, '_blank', 'noopener,noreferrer')
   }
 
@@ -120,7 +129,8 @@ export function BookmarkCardItem({ card }: Props) {
   }
 
   // 编辑模式下：解绑 dnd 拖拽 listeners、禁用整卡 click
-  const dragProps = editing ? {} : { ...attributes, ...listeners }
+  // draggable=false 时也不绑定（避免 sortable 的视觉抖动 / 无意义事件）
+  const dragProps = editing || !draggable ? {} : { ...attributes, ...listeners }
   const canSave =
     draftTitle.trim().length > 0 &&
     draftUrl.trim().length > 0 &&
