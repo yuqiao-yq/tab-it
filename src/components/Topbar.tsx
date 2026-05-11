@@ -27,13 +27,56 @@ export function Topbar() {
       const file = input.files?.[0]
       if (!file) return
       const text = await file.text()
+      let data: any
       try {
-        const data = JSON.parse(text)
-        await getRepository().bulkImport(data)
-        await init()
-        window.alert('导入成功')
-      } catch (err) {
+        data = JSON.parse(text)
+      } catch {
         window.alert('导入失败：文件格式错误')
+        return
+      }
+      const cats = Array.isArray(data?.categories) ? data.categories : []
+      const cards = Array.isArray(data?.cards) ? data.cards : []
+      if (cats.length === 0 && cards.length === 0) {
+        window.alert('导入失败：未识别到分类或书签数据')
+        return
+      }
+
+      // 让用户明确选择：合并(默认/安全) vs 替换(清空原数据)
+      // confirm 只能二选一，所以用两步：
+      //   step1: 是否继续？显示数据量
+      //   step2: 是否选择"替换全部"（取消则走合并）
+      const ok = window.confirm(
+        `检测到 ${cats.length} 个分类、${cards.length} 个书签。\n\n` +
+          `点击"确定"继续导入，点击"取消"放弃。`,
+      )
+      if (!ok) return
+
+      const replace = window.confirm(
+        `请选择导入模式：\n\n` +
+          `▸ 点击"确定" = 替换全部数据（清空本地所有分类与书签）\n` +
+          `▸ 点击"取消" = 合并到现有数据（推荐，保留本地数据）`,
+      )
+
+      try {
+        const result = await getRepository().bulkImport(
+          data,
+          replace ? 'replace' : 'merge',
+        )
+        await init()
+        if (result.mode === 'replace') {
+          window.alert(
+            `已替换全部数据：${result.categoriesAdded} 个分类、${result.cardsAdded} 个书签`,
+          )
+        } else {
+          window.alert(
+            `合并完成：\n` +
+              `  分类  新增 ${result.categoriesAdded} / 更新 ${result.categoriesUpdated}\n` +
+              `  书签  新增 ${result.cardsAdded} / 更新 ${result.cardsUpdated}`,
+          )
+        }
+      } catch (err) {
+        console.error(err)
+        window.alert('导入失败：' + (err instanceof Error ? err.message : '未知错误'))
       }
     }
     input.click()

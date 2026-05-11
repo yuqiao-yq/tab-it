@@ -5,7 +5,11 @@ import type {
   UserSettings,
 } from '../types/bookmark'
 import { DEFAULT_SETTINGS } from '../types/bookmark'
-import type { BookmarkRepository } from './types'
+import type {
+  BookmarkRepository,
+  BulkImportMode,
+  BulkImportResult,
+} from './types'
 
 const KEYS = {
   categories: 'tabit:categories',
@@ -135,12 +139,105 @@ export class LocalRepository implements BookmarkRepository {
   }
 
   // ---------- 批量 ----------
-  async bulkImport(data: ExportData): Promise<void> {
-    await Promise.all([
-      this.writeArray(KEYS.categories, data.categories),
-      this.writeArray(KEYS.cards, data.cards),
-      data.settings ? this.saveSettings(data.settings) : Promise.resolve(),
+  async bulkImport(
+    data: ExportData,
+    mode: BulkImportMode = 'merge',
+  ): Promise<BulkImportResult> {
+    const incomingCats = data.categories ?? []
+    const incomingCards = data.cards ?? []
+
+    if (mode === 'replace') {
+      // 完全替换：等价于旧行为，但显式声明，避免误用
+      await Promise.all([
+        this.writeArray(KEYS.categories, incomingCats),
+        this.writeArray(KEYS.cards, incomingCards),
+        data.settings ? this.saveSettings(data.settings) : Promise.resolve(),
+      ])
+      return {
+        mode,
+        categoriesAdded: incomingCats.length,
+        categoriesUpdated: 0,
+        cardsAdded: incomingCards.length,
+        cardsUpdated: 0,
+      }
+    }
+
+    // ─── merge 模式（默认）：保留本地，按 id 合并 ───
+    const [existCats, existCards] = await Promise.all([
+      this.readArray<Category>(KEYS.categories),
+      this.readArray<BookmarkCard>(KEYS.cards),
     ])
+
+    // 1) 合并 categories
+    const catMap = new Map(existCats.map((c) => [c.id, c]))
+    // 维护各 parent 下 order 上限，新加入项追加到末尾
+    const maxOrderByParent = new Map<string, number>()
+    for (const c of existCats) {
+      const key = c.parentId ?? ''
+      maxOrderByParent.set(
+        key,
+        Math.max(maxOrderByParent.get(key) ?? -1, c.order),
+      )
+    }
+    let categoriesAdded = 0
+    let categoriesUpdated = 0
+    for (const incoming of incomingCats) {
+      const existing = catMap.get(incoming.id)
+      if (existing) {
+        // 同 ID：取 updatedAt 较新者
+        if ((incoming.updatedAt ?? 0) > (existing.updatedAt ?? 0)) {
+          // 保留现有 order，避免位置抖动
+          catMap.set(incoming.id, { ...incoming, order: existing.order })
+          categoriesUpdated++
+        }
+      } else {
+        const key = incoming.parentId ?? ''
+        const next = (maxOrderByParent.get(key) ?? -1) + 1
+        maxOrderByParent.set(key, next)
+        catMap.set(incoming.id, { ...incoming, order: next })
+        categoriesAdded++
+      }
+    }
+
+    // 2) 合并 cards
+    const cardMap = new Map(existCards.map((c) => [c.id, c]))
+    const maxOrderByCat = new Map<string, number>()
+    for (const c of existCards) {
+      maxOrderByCat.set(
+        c.categoryId,
+        Math.max(maxOrderByCat.get(c.categoryId) ?? -1, c.order),
+      )
+    }
+    let cardsAdded = 0
+    let cardsUpdated = 0
+    for (const incoming of incomingCards) {
+      const existing = cardMap.get(incoming.id)
+      if (existing) {
+        if ((incoming.updatedAt ?? 0) > (existing.updatedAt ?? 0)) {
+          cardMap.set(incoming.id, { ...incoming, order: existing.order })
+          cardsUpdated++
+        }
+      } else {
+        const next = (maxOrderByCat.get(incoming.categoryId) ?? -1) + 1
+        maxOrderByCat.set(incoming.categoryId, next)
+        cardMap.set(incoming.id, { ...incoming, order: next })
+        cardsAdded++
+      }
+    }
+
+    await Promise.all([
+      this.writeArray(KEYS.categories, Array.from(catMap.values())),
+      this.writeArray(KEYS.cards, Array.from(cardMap.values())),
+      // settings 在合并模式下故意不覆盖（避免破坏当前主题/布局/壁纸偏好）
+    ])
+
+    return {
+      mode,
+      categoriesAdded,
+      categoriesUpdated,
+      cardsAdded,
+      cardsUpdated,
+    }
   }
 
   async bulkExport(): Promise<ExportData> {

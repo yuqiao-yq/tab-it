@@ -6,6 +6,18 @@ import type {
   UserSettings,
 } from '../types/bookmark'
 
+/** 批量导入模式 */
+export type BulkImportMode = 'merge' | 'replace'
+
+/** 批量导入结果统计 */
+export interface BulkImportResult {
+  mode: BulkImportMode
+  categoriesAdded: number
+  categoriesUpdated: number
+  cardsAdded: number
+  cardsUpdated: number
+}
+
 /**
  * 存储抽象层接口
  *
@@ -35,7 +47,12 @@ export interface BookmarkRepository {
   saveSettings(settings: UserSettings): Promise<void>
 
   // ---------- 批量 ----------
-  bulkImport(data: ExportData): Promise<void>
+  /**
+   * 批量导入数据。
+   * - mode='merge'（默认，安全）：与本地数据合并，同 ID 取 updatedAt 更新者，新 ID 追加并重排 order；不覆盖本地 settings
+   * - mode='replace'：完全替换本地数据（含 settings），慎用
+   */
+  bulkImport(data: ExportData, mode?: BulkImportMode): Promise<BulkImportResult>
   bulkExport(): Promise<ExportData>
   clear(): Promise<void>
 
