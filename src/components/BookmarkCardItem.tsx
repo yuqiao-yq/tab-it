@@ -331,7 +331,9 @@ export function BookmarkCardItem({ card }: Props) {
               'rounded px-1.5 py-1 -mx-1.5',
               'text-slate-300 dark:text-slate-600',
               'hover:text-brand hover:bg-slate-100 dark:hover:bg-slate-700/60',
-              'transition-colors',
+              // 仅 hover 卡片时显示，避免空状态干扰阅读
+              'opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
+              'transition-opacity',
             )}
             title="为该书签添加备注"
           >
