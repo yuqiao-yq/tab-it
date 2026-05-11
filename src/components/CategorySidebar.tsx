@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import {
   DndContext,
   PointerSensor,
@@ -6,12 +6,12 @@ import {
   useSensors,
   closestCenter,
   type DragEndEvent,
+  type DragMoveEvent,
 } from '@dnd-kit/core'
 import {
   SortableContext,
   useSortable,
   verticalListSortingStrategy,
-  arrayMove,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import type { Category } from '../types/bookmark'
@@ -21,7 +21,14 @@ import { IconPicker } from './IconPicker'
 import { IconView } from '../utils/icon'
 
 // 每次 UI 改动时手动 +1，便于在页面右下角确认"是否加载到最新代码"
-const SIDEBAR_BUILD_TAG = 'v4-dnd-sortable'
+const SIDEBAR_BUILD_TAG = 'v5-cross-level-dnd'
+
+// 拖到一行的"上 30% / 中 40% / 下 30%"分别表示三种放置语义
+type DropPosition = 'before' | 'after' | 'inside'
+interface OverInfo {
+  id: string
+  position: DropPosition
+}
 
 export function CategorySidebar() {
   const categories = useBookmarkStore((s) => s.categories)
@@ -33,7 +40,7 @@ export function CategorySidebar() {
   const removeCategory = useBookmarkStore((s) => s.removeCategory)
   const removeCategories = useBookmarkStore((s) => s.removeCategories)
   const updateCategory = useBookmarkStore((s) => s.updateCategory)
-  const reorderSiblings = useBookmarkStore((s) => s.reorderSiblings)
+  const moveCategory = useBookmarkStore((s) => s.moveCategory)
 
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingName, setEditingName] = useState('')
@@ -148,24 +155,92 @@ export function CategorySidebar() {
   // 选择 / 重命名 模式下禁用拖拽，避免冲突
   const dragDisabled = selectMode || editingId !== null
 
-  const handleDragEnd = (e: DragEndEvent) => {
-    const { active, over } = e
-    if (!over || active.id === over.id) return
-    const activeCat = categories.find((c) => c.id === active.id)
-    const overCat = categories.find((c) => c.id === over.id)
-    if (!activeCat || !overCat) return
-    // 仅允许同一父级（包括同为顶层）内排序，跨层级先不支持
-    if ((activeCat.parentId ?? '') !== (overCat.parentId ?? '')) return
+  // 拖拽过程中目标行 + 放置位置（before/after/inside）
+  // ref 用于 handleDragEnd 时拿到最新值（避免闭包 stale）
+  const [overInfo, setOverInfo] = useState<OverInfo | null>(null)
+  const overInfoRef = useRef<OverInfo | null>(null)
+  const updateOverInfo = (next: OverInfo | null) => {
+    const prev = overInfoRef.current
+    if (prev === null && next === null) return
+    if (
+      prev &&
+      next &&
+      prev.id === next.id &&
+      prev.position === next.position
+    ) {
+      return
+    }
+    overInfoRef.current = next
+    setOverInfo(next)
+  }
 
+  /**
+   * 拖动时持续计算"指针所在行的位置"——
+   * 行上 30% → before，下 30% → after，中间 40% → inside（成为子节点）
+   */
+  const handleDragMove = (e: DragMoveEvent) => {
+    const { active, over } = e
+    if (!over || active.id === over.id) {
+      updateOverInfo(null)
+      return
+    }
+    const activeId = String(active.id)
+    const overId = String(over.id)
+    // 循环引用：禁止把节点拖到自己的后代上
+    const desc = collectDescendantIds([activeId], categories)
+    if (desc.has(overId)) {
+      updateOverInfo(null)
+      return
+    }
+    const activeRect = active.rect.current.translated
+    const overRect = over.rect
+    if (!activeRect || !overRect) return
+    const center = activeRect.top + activeRect.height / 2
+    const ratio = (center - overRect.top) / overRect.height
+    let position: DropPosition
+    if (ratio < 0.3) position = 'before'
+    else if (ratio > 0.7) position = 'after'
+    else position = 'inside'
+    updateOverInfo({ id: overId, position })
+  }
+
+  const handleDragEnd = (e: DragEndEvent) => {
+    const info = overInfoRef.current
+    updateOverInfo(null)
+    if (!info || !e.active) return
+
+    const activeId = String(e.active.id)
+    const activeCat = categories.find((c) => c.id === activeId)
+    const overCat = categories.find((c) => c.id === info.id)
+    if (!activeCat || !overCat) return
+    if (activeCat.id === overCat.id) return
+
+    // 循环引用兜底校验（store 内也会再校验一次）
+    const desc = collectDescendantIds([activeId], categories)
+    if (desc.has(overCat.id)) return
+
+    if (info.position === 'inside') {
+      // 嵌入：移到 overCat 下作为最后一个子节点
+      const childCount = categories.filter(
+        (c) => c.parentId === overCat.id && c.id !== activeId,
+      ).length
+      void moveCategory(activeId, overCat.id, childCount)
+      // 自动展开目标节点，让放进去的子节点立刻可见
+      setExpanded((prev) => new Set(prev).add(overCat.id))
+      return
+    }
+
+    // before / after：插入到 overCat 所在层级（与 overCat 同父）
+    const newParent = overCat.parentId
     const siblings = categories
-      .filter((c) => (c.parentId ?? '') === (activeCat.parentId ?? ''))
+      .filter(
+        (c) => (c.parentId ?? '') === (newParent ?? '') && c.id !== activeId,
+      )
       .sort((a, b) => a.order - b.order)
-      .map((c) => c.id)
-    const oldIndex = siblings.indexOf(activeCat.id)
-    const newIndex = siblings.indexOf(overCat.id)
-    if (oldIndex < 0 || newIndex < 0) return
-    const next = arrayMove(siblings, oldIndex, newIndex)
-    void reorderSiblings(activeCat.parentId, next)
+    const overIndex = siblings.findIndex((c) => c.id === overCat.id)
+    if (overIndex < 0) return
+    const newIndex = info.position === 'before' ? overIndex : overIndex + 1
+    void moveCategory(activeId, newParent, newIndex)
   }
 
   /** 渲染某父级下的兄弟节点列表（每层一个 SortableContext） */
@@ -187,6 +262,9 @@ export function CategorySidebar() {
             cat={cat}
             depth={depth}
             disabled={dragDisabled}
+            dropIndicator={
+              overInfo && overInfo.id === cat.id ? overInfo.position : null
+            }
             renderChildren={() => renderSiblings(cat.id, depth + 1)}
             // ─── 行内交互所需上下文 ───
             activeId={activeId}
@@ -401,7 +479,9 @@ export function CategorySidebar() {
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
+            onDragMove={handleDragMove}
             onDragEnd={handleDragEnd}
+            onDragCancel={() => updateOverInfo(null)}
           >
             {renderSiblings(undefined, 0)}
           </DndContext>
@@ -457,6 +537,8 @@ interface RowProps {
   cat: Category
   depth: number
   disabled: boolean
+  /** 当前拖动时该行需要展示的视觉指示位置（before/after/inside）；null 不展示 */
+  dropIndicator: DropPosition | null
   renderChildren: () => JSX.Element
 
   activeId: string | null
@@ -486,6 +568,7 @@ function SortableSidebarRow(props: RowProps) {
     cat,
     depth,
     disabled,
+    dropIndicator,
     renderChildren,
     activeId,
     selectMode,
@@ -534,7 +617,14 @@ function SortableSidebarRow(props: RowProps) {
   const stop = (e: React.SyntheticEvent) => e.stopPropagation()
 
   return (
-    <div ref={setNodeRef} style={style}>
+    <div ref={setNodeRef} style={style} className="relative">
+      {/* 拖拽放置指示线：before / after */}
+      {dropIndicator === 'before' && (
+        <div className="pointer-events-none absolute -top-px left-1 right-1 h-[2px] bg-brand rounded-full z-10" />
+      )}
+      {dropIndicator === 'after' && (
+        <div className="pointer-events-none absolute -bottom-px left-1 right-1 h-[2px] bg-brand rounded-full z-10" />
+      )}
       <div
         // 整行作为 drag handle；同时仍保留 onClick 走 dnd-kit 距离阈值（6px 以下触发 click）
         {...attributes}
@@ -551,6 +641,9 @@ function SortableSidebarRow(props: RowProps) {
             : active
               ? 'bg-brand text-white'
               : 'hover:bg-slate-100 dark:hover:bg-slate-800',
+          // 嵌入指示：被拖动节点放下时会成为该行的子节点
+          dropIndicator === 'inside' &&
+            'ring-2 ring-brand ring-inset bg-brand/10 dark:bg-brand/20',
         )}
         style={{ paddingLeft: 4 + depth * 12 }}
         onClick={() => {

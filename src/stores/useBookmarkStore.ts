@@ -30,6 +30,17 @@ interface BookmarkState {
     parentId: string | undefined,
     orderedIds: string[],
   ) => Promise<void>
+  /**
+   * 通用移动：把分类 activeId 移到 targetParentId 下的 targetIndex 位置。
+   * - 自动重排新父级与旧父级（如不同）的所有兄弟 order
+   * - 校验循环引用：禁止把节点移到自己的后代下
+   * - targetParentId 为 undefined 表示移到顶层
+   */
+  moveCategory: (
+    activeId: string,
+    targetParentId: string | undefined,
+    targetIndex: number,
+  ) => Promise<void>
 
   addCard: (input: {
     categoryId: string
@@ -246,6 +257,65 @@ export const useBookmarkStore = create<BookmarkState>((set, get) => ({
       await getRepository().saveCategories(updated)
     }
     set({ categories: next })
+  },
+
+  async moveCategory(activeId, targetParentId, targetIndex) {
+    const allCats = get().categories
+    const active = allCats.find((c) => c.id === activeId)
+    if (!active) return
+
+    // ── 校验：禁止把节点移到自己 / 自己的后代下（循环引用） ──
+    if (targetParentId === activeId) return
+    const descendants = collectDescendantIds([activeId], allCats)
+    if (targetParentId && descendants.has(targetParentId)) return
+
+    const now = Date.now()
+    const oldParentKey = active.parentId ?? ''
+    const newParentKey = targetParentId ?? ''
+    const samePar = oldParentKey === newParentKey
+
+    // 1) 取新父级下的现有兄弟（不含 active 自身）
+    const newSiblings = allCats
+      .filter(
+        (c) => (c.parentId ?? '') === newParentKey && c.id !== activeId,
+      )
+      .sort((a, b) => a.order - b.order)
+
+    // 2) 在 targetIndex 处插入 active（同时改 parentId）
+    const movedActive: Category = {
+      ...active,
+      parentId: targetParentId,
+      updatedAt: now,
+    }
+    const clamped = Math.max(0, Math.min(targetIndex, newSiblings.length))
+    newSiblings.splice(clamped, 0, movedActive)
+
+    // 3) 收集需要更新的项（新父级里所有兄弟都要重新计算 order）
+    const updateMap = new Map<string, Category>()
+    newSiblings.forEach((c, idx) => {
+      updateMap.set(c.id, { ...c, order: idx, updatedAt: now })
+    })
+
+    // 4) 跨父级移动时，旧父级剩余兄弟也要重排，避免空洞
+    if (!samePar) {
+      const oldSiblings = allCats
+        .filter(
+          (c) => (c.parentId ?? '') === oldParentKey && c.id !== activeId,
+        )
+        .sort((a, b) => a.order - b.order)
+      oldSiblings.forEach((c, idx) => {
+        updateMap.set(c.id, { ...c, order: idx, updatedAt: now })
+      })
+    }
+
+    // 5) 写库 + setState（仅替换被更新的项，其余原样）
+    const toSave = Array.from(updateMap.values())
+    if (toSave.length > 0) {
+      await getRepository().saveCategories(toSave)
+    }
+    set({
+      categories: allCats.map((c) => updateMap.get(c.id) ?? c),
+    })
   },
 
   async addCard({ categoryId, title, url }) {
