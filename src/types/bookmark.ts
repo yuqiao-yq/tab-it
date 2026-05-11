@@ -48,7 +48,19 @@ export interface UserSettings {
   wallpaper?: string
   language: 'zh-CN' | 'en'
   syncProvider: 'local' | 'drive' | 'supabase'
+  /**
+   * 左侧分类栏宽度（px）。
+   * 取值范围参考 SIDEBAR_WIDTH_MIN / SIDEBAR_WIDTH_MAX，
+   * 默认值见 SIDEBAR_WIDTH_DEFAULT。折叠态由组件内 collapsed 状态控制，
+   * 不写入此字段，避免折叠后丢失展开时的偏好。
+   */
+  sidebarWidth?: number
 }
+
+/** 左侧分类栏宽度边界（与 CategorySidebar 中的拖拽限制保持一致） */
+export const SIDEBAR_WIDTH_MIN = 180
+export const SIDEBAR_WIDTH_MAX = 480
+export const SIDEBAR_WIDTH_DEFAULT = 240
 
 /** 导入导出数据 */
 export interface ExportData {

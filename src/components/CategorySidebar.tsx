@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   DndContext,
   PointerSensor,
@@ -15,6 +15,11 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import type { Category } from '../types/bookmark'
+import {
+  SIDEBAR_WIDTH_DEFAULT,
+  SIDEBAR_WIDTH_MAX,
+  SIDEBAR_WIDTH_MIN,
+} from '../types/bookmark'
 import { useBookmarkStore } from '../stores/useBookmarkStore'
 import { cn } from '../utils/cn'
 import { IconPicker } from './IconPicker'
@@ -41,6 +46,8 @@ export function CategorySidebar() {
   const removeCategories = useBookmarkStore((s) => s.removeCategories)
   const updateCategory = useBookmarkStore((s) => s.updateCategory)
   const moveCategory = useBookmarkStore((s) => s.moveCategory)
+  const savedSidebarWidth = useBookmarkStore((s) => s.settings.sidebarWidth)
+  const updateSettings = useBookmarkStore((s) => s.updateSettings)
 
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingName, setEditingName] = useState('')
@@ -53,6 +60,70 @@ export function CategorySidebar() {
   const [animating, setAnimating] = useState(false)
   // 树形节点的展开状态：存储已展开的分类 ID
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+
+  // ─── 侧栏宽度（可拖拽调整） ─────────────────────────
+  // 持久化值放在 settings.sidebarWidth；这里维护一份本地 state，
+  // 拖拽中实时更新（高频），松手时再持久化（低频）。
+  const [sidebarWidth, setSidebarWidth] = useState<number>(
+    () => clampSidebarWidth(savedSidebarWidth ?? SIDEBAR_WIDTH_DEFAULT),
+  )
+  // 是否正在拖拽 → 拖拽中关闭 width 过渡，否则会跟手抖动
+  const [resizing, setResizing] = useState(false)
+
+  // settings.sidebarWidth 异步加载完成后回填一次（首次 init 时本地 state 拿到的是默认值）
+  useEffect(() => {
+    if (typeof savedSidebarWidth === 'number') {
+      setSidebarWidth(clampSidebarWidth(savedSidebarWidth))
+    }
+  }, [savedSidebarWidth])
+
+  // 全局监听 pointermove/up：避免拖到侧栏外面失焦后无法继续拖
+  useEffect(() => {
+    if (!resizing) return
+    const onMove = (e: PointerEvent) => {
+      // viewport 左边到指针的距离 = 侧栏新宽度（侧栏紧贴页面左边缘）
+      setSidebarWidth(clampSidebarWidth(e.clientX))
+    }
+    const onUp = () => {
+      setResizing(false)
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
+    // 拖拽期间禁用文本选中，否则鼠标会一路选中页面文字
+    const prevUserSelect = document.body.style.userSelect
+    const prevCursor = document.body.style.cursor
+    document.body.style.userSelect = 'none'
+    document.body.style.cursor = 'col-resize'
+    return () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
+      document.body.style.userSelect = prevUserSelect
+      document.body.style.cursor = prevCursor
+    }
+  }, [resizing])
+
+  // 拖拽刚结束时把最终宽度持久化到 settings；resizing 期间频繁写入会触发大量 storage I/O
+  useEffect(() => {
+    if (resizing) return
+    if (collapsed) return // 折叠态不覆盖展开偏好
+    if (savedSidebarWidth === sidebarWidth) return
+    void updateSettings({ sidebarWidth })
+    // 仅在 resizing 状态变化结束后触发；不依赖 sidebarWidth/savedSidebarWidth 变更
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resizing])
+
+  const handleResizeStart = (e: React.PointerEvent) => {
+    e.preventDefault()
+    setResizing(true)
+  }
+
+  /** 双击调整柄 → 恢复默认宽度（与开发者工具的拖柄交互一致） */
+  const handleResizeReset = () => {
+    setSidebarWidth(SIDEBAR_WIDTH_DEFAULT)
+    if (!collapsed) void updateSettings({ sidebarWidth: SIDEBAR_WIDTH_DEFAULT })
+  }
 
   const handleToggle = () => {
     setAnimating(true)
@@ -299,10 +370,10 @@ export function CategorySidebar() {
         'relative shrink-0 flex flex-col',
         'border-r border-slate-200/60 dark:border-slate-700/60',
         'overflow-hidden',
-        // 丝滑宽度过渡
-        'transition-[width] duration-300 ease-in-out',
-        collapsed ? 'w-10' : 'w-60',
+        // 拖拽中关闭过渡，避免跟手抖动；其他时机（折叠/展开/恢复默认）保留丝滑动画
+        !resizing && 'transition-[width] duration-300 ease-in-out',
       )}
+      style={{ width: collapsed ? 40 : sidebarWidth }}
       onTransitionEnd={() => setAnimating(false)}
     >
       {/* ── 流动彩光边缘 ───────────────────────────────────── */}
@@ -534,8 +605,49 @@ export function CategorySidebar() {
           </div>
         )}
       </div>
+
+      {/* ── 右边缘宽度调整柄 ─────────────────────────────────────
+          - 折叠态隐藏（折叠后宽度固定 40px）
+          - 6px 命中区，2px 视觉条；hover/拖拽中变为高亮 brand 色
+          - 双击恢复默认宽度（240px） */}
+      {!collapsed && (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="拖动调整侧栏宽度"
+          aria-valuemin={SIDEBAR_WIDTH_MIN}
+          aria-valuemax={SIDEBAR_WIDTH_MAX}
+          aria-valuenow={sidebarWidth}
+          tabIndex={-1}
+          onPointerDown={handleResizeStart}
+          onDoubleClick={handleResizeReset}
+          title="拖动调整宽度（双击恢复默认）"
+          className={cn(
+            'group/resize absolute top-0 right-0 h-full w-1.5 -mr-[2px]',
+            'cursor-col-resize z-30',
+            // 不在拖拽态时不要拦截 onTransitionEnd 之类内部事件
+            'select-none touch-none',
+          )}
+        >
+          <div
+            className={cn(
+              'mx-auto h-full w-[2px] rounded-full',
+              'transition-colors duration-150',
+              resizing
+                ? 'bg-brand'
+                : 'bg-transparent group-hover/resize:bg-brand/60',
+            )}
+          />
+        </div>
+      )}
     </aside>
   )
+}
+
+/** 把任意 width 收敛到 [SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX] 范围内 */
+function clampSidebarWidth(w: number): number {
+  if (!Number.isFinite(w)) return SIDEBAR_WIDTH_DEFAULT
+  return Math.max(SIDEBAR_WIDTH_MIN, Math.min(SIDEBAR_WIDTH_MAX, Math.round(w)))
 }
 
 // ─── Sortable 子组件 ────────────────────────────────
