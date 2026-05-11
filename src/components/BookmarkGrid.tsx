@@ -79,17 +79,21 @@ export function BookmarkGrid() {
       {/* 最近使用：常驻在分类内容上方，独立折叠（搜索模式由上方 if 提前 return，这里不会渲染） */}
       <RecentSection />
 
-      {/* 当前分类（根 section）：使用 compact header 暴露折叠按钮 */}
+      {/* 当前分类（根 section）：使用 compact header 暴露折叠按钮
+          key 绑定 activeCategoryId：切换分类时强制 remount，恢复"展开"默认态 */}
       <CategorySection
+        key={`root-${activeCategoryId}`}
         category={activeCategory}
         showFolders
         headerVariant="compact"
       />
 
-      {/* 所有后代分类（递归 DFS）：每个作为独立 section（full header） */}
+      {/* 所有后代分类（递归 DFS）：每个作为独立 section（full header）
+          key 含 activeCategoryId：切换分类时强制 remount，所有子 section 回到"折叠"默认态；
+          同一 active 下用户手动切换的 collapsed 状态保留 */}
       {descendants.map((cat) => (
         <CategorySection
-          key={cat.id}
+          key={`${activeCategoryId}-${cat.id}`}
           category={cat}
           showFolders={false}
           headerVariant="full"
@@ -139,7 +143,10 @@ function CategorySection({
   const showCompactHeader = headerVariant === 'compact'
 
   // section 自身的折叠状态（compact / full 两种 header 都能切换）
-  const [collapsed, setCollapsed] = useState(false)
+  // - full header（子 section）：默认折叠，配合"切换分类时只展开根目录的书签"产品行为
+  // - compact header（根 section）：默认展开，让用户切到分类后立刻看到该分类的书签
+  // BookmarkGrid 通过 key 中带 activeCategoryId 让本组件在切换时 remount 回到默认态
+  const [collapsed, setCollapsed] = useState(showFullHeader)
 
   const subFolders = useMemo(
     () =>
