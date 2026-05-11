@@ -515,9 +515,9 @@ export function CategorySidebar() {
             </div>
             {!hasAnyChildren && (
               <div className="mt-1.5 leading-snug">
-                每行右侧的{' '}
+                鼠标悬停到分类行右侧会出现{' '}
                 <span className="font-bold text-slate-500">+</span>{' '}
-                是「新建子分类」按钮（始终可见），点一下输入名称即可，新建后会立刻出现{' '}
+                「新建子分类」按钮，点一下输入名称即可，新建后会立刻出现{' '}
                 <span className="font-bold text-slate-500">▶</span> 折叠按钮。
               </div>
             )}
@@ -767,11 +767,11 @@ function SortableSidebarRow(props: RowProps) {
 
         {!selectMode && (
           <>
-            {/* 新建子分类（始终可见，避免 hover 不触发的不确定性） */}
+            {/* 新建子分类（hover 整行时显示，减少视觉噪音） */}
             <button
               className={cn(
                 'w-5 h-5 flex items-center justify-center rounded text-base leading-none shrink-0',
-                'transition-colors',
+                'opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity',
                 active
                   ? 'text-white/70 hover:text-white hover:bg-white/20'
                   : 'text-slate-400 hover:text-brand hover:bg-slate-200/80 dark:hover:bg-slate-700',
@@ -785,11 +785,14 @@ function SortableSidebarRow(props: RowProps) {
             >
               +
             </button>
-            {/* 删除（hover 显示，避免误触） */}
+            {/* 删除（hover 整行时显示，垃圾桶 icon 比 ✕ 语义更直观） */}
             <button
               className={cn(
-                'opacity-0 group-hover:opacity-100 transition-opacity text-xs px-0.5 shrink-0',
-                active ? 'text-white/80' : 'text-slate-400 hover:text-red-500',
+                'w-5 h-5 flex items-center justify-center rounded shrink-0',
+                'opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity',
+                active
+                  ? 'text-white/80 hover:text-white hover:bg-white/20'
+                  : 'text-slate-400 hover:text-red-500 hover:bg-slate-200/80 dark:hover:bg-slate-700',
               )}
               onClick={(e) => {
                 e.stopPropagation()
@@ -801,7 +804,7 @@ function SortableSidebarRow(props: RowProps) {
               onPointerDown={stop}
               title="删除"
             >
-              ✕
+              <TrashIcon />
             </button>
           </>
         )}
@@ -812,6 +815,29 @@ function SortableSidebarRow(props: RowProps) {
         <div>{renderChildren()}</div>
       )}
     </div>
+  )
+}
+
+/** 12x12 垃圾桶图标（stroke 风格，与侧栏行高/+号视觉重量协调） */
+function TrashIcon() {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <polyline points="3 6 5 6 21 6" />
+      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+      <path d="M10 11v6" />
+      <path d="M14 11v6" />
+      <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+    </svg>
   )
 }
 
