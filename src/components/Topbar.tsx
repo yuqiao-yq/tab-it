@@ -8,6 +8,7 @@ import { cn } from '../utils/cn'
 import { WebSearchBox } from './WebSearchBox'
 import { CardMenu } from './CardMenu'
 import { HelpDialog } from './HelpDialog'
+import { GradientEditor } from './GradientEditor'
 // docs/USER_GUIDE.md 是用户文档的唯一来源，弹窗内容由它驱动
 // （Vite 的 ?raw 后缀会把文件以纯字符串形式 import 进来）
 import userGuideMd from '../../docs/USER_GUIDE.md?raw'
@@ -495,7 +496,7 @@ function StyleDialog({
           <span>样式管理</span>
         </span>
       }
-      width={520}
+      width={560}
       onClose={onClose}
     >
       <div className="space-y-5">
@@ -573,6 +574,20 @@ function StyleDialog({
                 </button>
               )
             })}
+          </div>
+
+          {/* 自定义渐变 / 调色盘 */}
+          <div className="mb-3">
+            <div className="text-[11px] text-slate-400 mb-1.5">
+              自定义渐变（调色盘）
+            </div>
+            <GradientEditor
+              initialCss={settings.wallpaper}
+              onApply={(css) => {
+                void onUpdate({ wallpaper: css })
+                setCustomUrl('')
+              }}
+            />
           </div>
 
           {/* 自定义图片：URL 输入 + 本地上传 */}
