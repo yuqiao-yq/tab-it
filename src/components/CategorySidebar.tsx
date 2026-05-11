@@ -1,4 +1,19 @@
 import { useState } from 'react'
+import {
+  DndContext,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  closestCenter,
+  type DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+  arrayMove,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import type { Category } from '../types/bookmark'
 import { useBookmarkStore } from '../stores/useBookmarkStore'
 import { cn } from '../utils/cn'
@@ -6,7 +21,7 @@ import { IconPicker } from './IconPicker'
 import { IconView } from '../utils/icon'
 
 // 每次 UI 改动时手动 +1，便于在页面右下角确认"是否加载到最新代码"
-const SIDEBAR_BUILD_TAG = 'v3-always-plus'
+const SIDEBAR_BUILD_TAG = 'v4-dnd-sortable'
 
 export function CategorySidebar() {
   const categories = useBookmarkStore((s) => s.categories)
@@ -18,6 +33,7 @@ export function CategorySidebar() {
   const removeCategory = useBookmarkStore((s) => s.removeCategory)
   const removeCategories = useBookmarkStore((s) => s.removeCategories)
   const updateCategory = useBookmarkStore((s) => s.updateCategory)
+  const reorderSiblings = useBookmarkStore((s) => s.reorderSiblings)
 
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingName, setEditingName] = useState('')
@@ -45,7 +61,9 @@ export function CategorySidebar() {
     })
   }
 
-  const topLevel = categories.filter((c) => !c.parentId).sort((a, b) => a.order - b.order)
+  const topLevel = categories
+    .filter((c) => !c.parentId)
+    .sort((a, b) => a.order - b.order)
 
   const childrenOf = (id: string) =>
     categories.filter((c) => c.parentId === id).sort((a, b) => a.order - b.order)
@@ -68,23 +86,46 @@ export function CategorySidebar() {
     // 自动展开父级，让新创建的子分类立刻可见
     setExpanded((prev) => new Set(prev).add(parent.id))
   }
-  const startEdit = (id: string, name: string) => { setEditingId(id); setEditingName(name) }
+  const startEdit = (id: string, name: string) => {
+    setEditingId(id)
+    setEditingName(name)
+  }
   const commitEdit = async () => {
-    if (editingId && editingName.trim()) await renameCategory(editingId, editingName.trim())
+    if (editingId && editingName.trim())
+      await renameCategory(editingId, editingName.trim())
     setEditingId(null)
   }
 
-  const enterSelectMode = () => { setSelectMode(true); setSelectedIds(new Set()) }
-  const exitSelectMode = () => { setSelectMode(false); setSelectedIds(new Set()) }
+  const enterSelectMode = () => {
+    setSelectMode(true)
+    setSelectedIds(new Set())
+  }
+  const exitSelectMode = () => {
+    setSelectMode(false)
+    setSelectedIds(new Set())
+  }
   const toggleSelect = (id: string) =>
-    setSelectedIds((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
+    setSelectedIds((prev) => {
+      const n = new Set(prev)
+      n.has(id) ? n.delete(id) : n.add(id)
+      return n
+    })
   const toggleSelectAll = () =>
-    setSelectedIds(selectedIds.size === topLevel.length ? new Set() : new Set(topLevel.map((c) => c.id)))
+    setSelectedIds(
+      selectedIds.size === topLevel.length
+        ? new Set()
+        : new Set(topLevel.map((c) => c.id)),
+    )
   const handleBatchDelete = async () => {
     if (selectedIds.size === 0) return
     const allIds = collectDescendantIds(Array.from(selectedIds), categories)
     const totalCards = cards.filter((c) => allIds.has(c.categoryId)).length
-    if (!window.confirm(`确定删除 ${allIds.size} 个分类（含子分类）、${totalCards} 个卡片吗？`)) return
+    if (
+      !window.confirm(
+        `确定删除 ${allIds.size} 个分类（含子分类）、${totalCards} 个卡片吗？`,
+      )
+    )
+      return
     await removeCategories(Array.from(selectedIds))
     exitSelectMode()
   }
@@ -96,167 +137,81 @@ export function CategorySidebar() {
     .filter((c) => categories.some((x) => x.parentId === c.id))
     .map((c) => c.id)
   const hasAnyChildren = allParentIds.length > 0
-  const allExpanded = hasAnyChildren && allParentIds.every((id) => expanded.has(id))
+  const allExpanded =
+    hasAnyChildren && allParentIds.every((id) => expanded.has(id))
 
-  /** 递归渲染树节点 */
-  const renderNode = (cat: Category, depth: number): JSX.Element => {
-    const children = childrenOf(cat.id)
-    const hasChildren = children.length > 0
-    const isExpanded = expanded.has(cat.id)
-    const active = activeId === cat.id
-    const isSelected = selectedIds.has(cat.id)
-    // 选择模式下只允许操作顶层分类
-    const checkable = !cat.parentId
+  // ─── dnd-kit ─────────────────────────────────────
+  // 距离阈值 6px：避免点击进入分类时误触发拖拽
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+  )
+  // 选择 / 重命名 模式下禁用拖拽，避免冲突
+  const dragDisabled = selectMode || editingId !== null
 
+  const handleDragEnd = (e: DragEndEvent) => {
+    const { active, over } = e
+    if (!over || active.id === over.id) return
+    const activeCat = categories.find((c) => c.id === active.id)
+    const overCat = categories.find((c) => c.id === over.id)
+    if (!activeCat || !overCat) return
+    // 仅允许同一父级（包括同为顶层）内排序，跨层级先不支持
+    if ((activeCat.parentId ?? '') !== (overCat.parentId ?? '')) return
+
+    const siblings = categories
+      .filter((c) => (c.parentId ?? '') === (activeCat.parentId ?? ''))
+      .sort((a, b) => a.order - b.order)
+      .map((c) => c.id)
+    const oldIndex = siblings.indexOf(activeCat.id)
+    const newIndex = siblings.indexOf(overCat.id)
+    if (oldIndex < 0 || newIndex < 0) return
+    const next = arrayMove(siblings, oldIndex, newIndex)
+    void reorderSiblings(activeCat.parentId, next)
+  }
+
+  /** 渲染某父级下的兄弟节点列表（每层一个 SortableContext） */
+  const renderSiblings = (
+    parentId: string | undefined,
+    depth: number,
+  ): JSX.Element => {
+    const siblings = categories
+      .filter((c) => (c.parentId ?? '') === (parentId ?? ''))
+      .sort((a, b) => a.order - b.order)
     return (
-      <div key={cat.id}>
-        <div
-          className={cn(
-            'group flex items-center gap-1 pr-2 py-1.5 rounded-lg cursor-pointer transition-colors',
-            selectMode
-              ? checkable
-                ? isSelected ? 'bg-brand/10 dark:bg-brand/20' : 'hover:bg-slate-100 dark:hover:bg-slate-800'
-                : 'opacity-50 cursor-default'
-              : active ? 'bg-brand text-white' : 'hover:bg-slate-100 dark:hover:bg-slate-800',
-          )}
-          style={{ paddingLeft: 4 + depth * 12 }}
-          onClick={() => {
-            if (selectMode) { if (checkable) toggleSelect(cat.id); return }
-            setActive(cat.id)
-            // 点击有子节点的分类时自动展开，方便一次性看到下级
-            if (hasChildren && !isExpanded) toggleExpand(cat.id)
-          }}
-        >
-          {/* 展开/折叠按钮（无子节点时占位保持对齐） */}
-          {hasChildren ? (
-            <button
-              className={cn(
-                'w-5 h-5 flex items-center justify-center text-[11px] shrink-0 leading-none rounded',
-                'transition-transform duration-150 font-bold',
-                isExpanded ? 'rotate-90' : '',
-                !selectMode && active
-                  ? 'text-white hover:bg-white/20'
-                  : 'text-slate-500 hover:text-slate-900 hover:bg-slate-200 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-700',
-              )}
-              onClick={(e) => { e.stopPropagation(); toggleExpand(cat.id) }}
-              title={isExpanded ? '折叠子分类' : '展开子分类'}
-            >
-              ▶
-            </button>
-          ) : (
-            <span className="w-5 shrink-0" />
-          )}
-
-          {selectMode && checkable ? (
-            <span className={cn(
-              'w-4 h-4 rounded border flex items-center justify-center text-[10px] shrink-0',
-              isSelected ? 'bg-brand border-brand text-white' : 'border-slate-300 dark:border-slate-600'
-            )}>{isSelected && '✓'}</span>
-          ) : (
-            <span
-              className="shrink-0"
-              onClick={(e) => e.stopPropagation()}
-              onPointerDown={(e) => e.stopPropagation()}
-            >
-              <IconPicker
-                value={cat.icon}
-                defaultEmoji={depth === 0 ? '📁' : '📂'}
-                onChange={(icon) => void updateCategory(cat.id, { icon })}
-                trigger={(open) => (
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); open() }}
-                    title="点击修改图标"
-                    className={cn(
-                      'flex items-center justify-center w-5 h-5 rounded',
-                      'hover:bg-slate-200/70 dark:hover:bg-slate-700/60',
-                      !selectMode && active && 'hover:bg-white/20',
-                    )}
-                  >
-                    <IconView
-                      value={cat.icon}
-                      fallback={depth === 0 ? '📁' : '📂'}
-                      emojiClassName="text-base leading-none"
-                      imgClassName="w-4 h-4 rounded-sm object-contain"
-                    />
-                  </button>
-                )}
-              />
-            </span>
-          )}
-
-          {editingId === cat.id ? (
-            <input
-              autoFocus
-              value={editingName}
-              onChange={(e) => setEditingName(e.target.value)}
-              onBlur={commitEdit}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') commitEdit()
-                if (e.key === 'Escape') setEditingId(null)
-              }}
-              onClick={(e) => e.stopPropagation()}
-              className="flex-1 min-w-0 bg-transparent outline-none text-sm"
-            />
-          ) : (
-            <span
-              className="flex-1 min-w-0 text-sm truncate"
-              title={cat.name}
-              onDoubleClick={(e) => {
-                if (selectMode) return
-                e.stopPropagation()
-                startEdit(cat.id, cat.name)
-              }}
-            >{cat.name}</span>
-          )}
-
-          <span className={cn(
-            'text-xs shrink-0 tabular-nums',
-            !selectMode && active ? 'text-white/70' : 'text-slate-400'
-          )}>
-            {countOf(cat.id)}
-          </span>
-
-          {!selectMode && (
-            <>
-              {/* 新建子分类（始终可见，避免 hover 不触发的不确定性） */}
-              <button
-                className={cn(
-                  'w-5 h-5 flex items-center justify-center rounded text-base leading-none shrink-0',
-                  'transition-colors',
-                  active
-                    ? 'text-white/70 hover:text-white hover:bg-white/20'
-                    : 'text-slate-400 hover:text-brand hover:bg-slate-200/80 dark:hover:bg-slate-700',
-                )}
-                onClick={(e) => { e.stopPropagation(); handleAddSub(cat) }}
-                title={`在「${cat.name}」下新建子分类`}
-              >+</button>
-              {/* 删除（hover 显示，避免误触） */}
-              <button
-                className={cn(
-                  'opacity-0 group-hover:opacity-100 transition-opacity text-xs px-0.5 shrink-0',
-                  active ? 'text-white/80' : 'text-slate-400 hover:text-red-500'
-                )}
-                onClick={async (e) => {
-                  e.stopPropagation()
-                  const msg = hasChildren
-                    ? `删除「${cat.name}」及其所有子文件夹和书签？`
-                    : `删除「${cat.name}」及其下所有书签？`
-                  if (window.confirm(msg)) await removeCategory(cat.id)
-                }}
-                title="删除"
-              >✕</button>
-            </>
-          )}
-        </div>
-
-        {/* 子节点：选择模式下不展开，避免操作语义混乱 */}
-        {hasChildren && isExpanded && !selectMode && (
-          <div>
-            {children.map((c) => renderNode(c, depth + 1))}
-          </div>
-        )}
-      </div>
+      <SortableContext
+        items={siblings.map((c) => c.id)}
+        strategy={verticalListSortingStrategy}
+      >
+        {siblings.map((cat) => (
+          <SortableSidebarRow
+            key={cat.id}
+            cat={cat}
+            depth={depth}
+            disabled={dragDisabled}
+            renderChildren={() => renderSiblings(cat.id, depth + 1)}
+            // ─── 行内交互所需上下文 ───
+            activeId={activeId}
+            selectMode={selectMode}
+            selectedIds={selectedIds}
+            editingId={editingId}
+            editingName={editingName}
+            expanded={expanded}
+            childrenOf={childrenOf}
+            countOf={countOf}
+            onActivate={setActive}
+            onToggleExpand={toggleExpand}
+            onToggleSelect={toggleSelect}
+            onStartEdit={startEdit}
+            onCommitEdit={commitEdit}
+            onCancelEdit={() => setEditingId(null)}
+            onChangeEditingName={setEditingName}
+            onIconChange={(icon) =>
+              void updateCategory(cat.id, { icon })
+            }
+            onAddSub={handleAddSub}
+            onRemove={(id) => void removeCategory(id)}
+          />
+        ))}
+      </SortableContext>
     )
   }
 
@@ -312,7 +267,11 @@ export function CategorySidebar() {
             return (
               <button
                 key={cat.id}
-                onClick={() => { setCollapsed(false); setAnimating(true); setActive(cat.id) }}
+                onClick={() => {
+                  setCollapsed(false)
+                  setAnimating(true)
+                  setActive(cat.id)
+                }}
                 title={cat.name}
                 className={cn(
                   'w-8 h-8 rounded-lg flex items-center justify-center text-sm',
@@ -348,21 +307,34 @@ export function CategorySidebar() {
         <div className="flex items-center justify-between px-2 mb-2 h-7">
           {selectMode ? (
             <>
-              <span className="text-xs font-semibold text-brand">已选 {selectedIds.size}</span>
+              <span className="text-xs font-semibold text-brand">
+                已选 {selectedIds.size}
+              </span>
               <div className="flex items-center gap-0.5">
-                <button onClick={toggleSelectAll} className="btn-ghost !p-1 text-xs">
+                <button
+                  onClick={toggleSelectAll}
+                  className="btn-ghost !p-1 text-xs"
+                >
                   {allSelected ? '✕全' : '✓全'}
                 </button>
                 <button
                   onClick={handleBatchDelete}
                   disabled={selectedIds.size === 0}
-                  className={cn('btn-ghost !p-1 text-xs',
+                  className={cn(
+                    'btn-ghost !p-1 text-xs',
                     selectedIds.size > 0
                       ? 'text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20'
-                      : 'opacity-40 cursor-not-allowed'
+                      : 'opacity-40 cursor-not-allowed',
                   )}
-                >🗑</button>
-                <button onClick={exitSelectMode} className="btn-ghost !p-1 text-xs">完成</button>
+                >
+                  🗑
+                </button>
+                <button
+                  onClick={exitSelectMode}
+                  className="btn-ghost !p-1 text-xs"
+                >
+                  完成
+                </button>
               </div>
             </>
           ) : (
@@ -384,26 +356,36 @@ export function CategorySidebar() {
                   title={
                     !hasAnyChildren
                       ? '当前没有任何子分类，从浏览器再导入或新建子分类后即可使用'
-                      : allExpanded ? '一键折叠全部子分类' : '一键展开全部子分类'
+                      : allExpanded
+                        ? '一键折叠全部子分类'
+                        : '一键展开全部子分类'
                   }
-                >{allExpanded ? '全收' : '全展'}</button>
+                >
+                  {allExpanded ? '全收' : '全展'}
+                </button>
                 <button
                   onClick={enterSelectMode}
                   className="btn-ghost !p-1 h-6 w-6 text-xs"
                   disabled={topLevel.length === 0}
                   title="批量管理"
-                >⚙</button>
+                >
+                  ⚙
+                </button>
                 <button
                   onClick={handleAdd}
                   className="btn-ghost !p-1 h-6 w-6 text-base leading-none"
                   title="新建顶层分类"
-                >+</button>
+                >
+                  +
+                </button>
                 {/* 收起按钮 */}
                 <button
                   onClick={handleToggle}
                   className="btn-ghost !p-1 h-6 w-6 text-base leading-none"
                   title="收起分类栏"
-                >‹</button>
+                >
+                  ‹
+                </button>
               </div>
             </>
           )}
@@ -413,8 +395,16 @@ export function CategorySidebar() {
           <div className="px-2 py-4 text-sm text-slate-400">还没有分类</div>
         )}
 
+        {/* DndContext 包整棵分类树。各层的 SortableContext 通过 renderSiblings 生成。
+            选择/重命名模式下禁用拖拽。 */}
         <div className="flex flex-col gap-0.5 overflow-y-auto">
-          {topLevel.map((cat) => renderNode(cat, 0))}
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
+          >
+            {renderSiblings(undefined, 0)}
+          </DndContext>
         </div>
 
         {/* 数据状态诊断面板：让"折叠/展开为啥没反应"一目了然 */}
@@ -422,22 +412,33 @@ export function CategorySidebar() {
           <div className="mt-3 px-2 text-[11px] leading-relaxed text-slate-400 border-t border-slate-200/60 dark:border-slate-700/60 pt-2">
             <div className="flex items-center justify-between">
               <span>分类总数</span>
-              <span className="tabular-nums text-slate-500">{categories.length}</span>
+              <span className="tabular-nums text-slate-500">
+                {categories.length}
+              </span>
             </div>
             <div className="flex items-center justify-between">
               <span>顶层分类</span>
-              <span className="tabular-nums text-slate-500">{topLevel.length}</span>
+              <span className="tabular-nums text-slate-500">
+                {topLevel.length}
+              </span>
             </div>
             <div className="flex items-center justify-between">
               <span>含子分类的</span>
-              <span className={cn(
-                'tabular-nums',
-                hasAnyChildren ? 'text-brand font-medium' : 'text-slate-400'
-              )}>{allParentIds.length}</span>
+              <span
+                className={cn(
+                  'tabular-nums',
+                  hasAnyChildren ? 'text-brand font-medium' : 'text-slate-400',
+                )}
+              >
+                {allParentIds.length}
+              </span>
             </div>
             {!hasAnyChildren && (
               <div className="mt-1.5 leading-snug">
-                每行右侧的 <span className="font-bold text-slate-500">+</span> 是「新建子分类」按钮（始终可见），点一下输入名称即可，新建后会立刻出现 <span className="font-bold text-slate-500">▶</span> 折叠按钮。
+                每行右侧的{' '}
+                <span className="font-bold text-slate-500">+</span>{' '}
+                是「新建子分类」按钮（始终可见），点一下输入名称即可，新建后会立刻出现{' '}
+                <span className="font-bold text-slate-500">▶</span> 折叠按钮。
               </div>
             )}
             {/* build 标记：用于判断当前页面是否加载了最新代码 */}
@@ -451,13 +452,289 @@ export function CategorySidebar() {
   )
 }
 
-function collectDescendantIds(ids: string[], allCats: Category[]): Set<string> {
+// ─── Sortable 子组件 ────────────────────────────────
+interface RowProps {
+  cat: Category
+  depth: number
+  disabled: boolean
+  renderChildren: () => JSX.Element
+
+  activeId: string | null
+  selectMode: boolean
+  selectedIds: Set<string>
+  editingId: string | null
+  editingName: string
+  expanded: Set<string>
+
+  childrenOf: (id: string) => Category[]
+  countOf: (id: string) => number
+
+  onActivate: (id: string) => void
+  onToggleExpand: (id: string) => void
+  onToggleSelect: (id: string) => void
+  onStartEdit: (id: string, name: string) => void
+  onCommitEdit: () => Promise<void> | void
+  onCancelEdit: () => void
+  onChangeEditingName: (v: string) => void
+  onIconChange: (icon?: string) => void
+  onAddSub: (parent: Category) => void
+  onRemove: (id: string) => void
+}
+
+function SortableSidebarRow(props: RowProps) {
+  const {
+    cat,
+    depth,
+    disabled,
+    renderChildren,
+    activeId,
+    selectMode,
+    selectedIds,
+    editingId,
+    editingName,
+    expanded,
+    childrenOf,
+    countOf,
+    onActivate,
+    onToggleExpand,
+    onToggleSelect,
+    onStartEdit,
+    onCommitEdit,
+    onCancelEdit,
+    onChangeEditingName,
+    onIconChange,
+    onAddSub,
+    onRemove,
+  } = props
+
+  const children = childrenOf(cat.id)
+  const hasChildren = children.length > 0
+  const isExpanded = expanded.has(cat.id)
+  const active = activeId === cat.id
+  const isSelected = selectedIds.has(cat.id)
+  const checkable = !cat.parentId
+
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: cat.id, disabled })
+
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+  }
+
+  // 阻止子按钮的 pointerdown 冒泡到 dnd-kit listeners，
+  // 否则点子按钮会被识别为拖拽起点
+  const stop = (e: React.SyntheticEvent) => e.stopPropagation()
+
+  return (
+    <div ref={setNodeRef} style={style}>
+      <div
+        // 整行作为 drag handle；同时仍保留 onClick 走 dnd-kit 距离阈值（6px 以下触发 click）
+        {...attributes}
+        {...listeners}
+        className={cn(
+          'group flex items-center gap-1 pr-2 py-1.5 rounded-lg transition-colors',
+          disabled ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing',
+          selectMode
+            ? checkable
+              ? isSelected
+                ? 'bg-brand/10 dark:bg-brand/20'
+                : 'hover:bg-slate-100 dark:hover:bg-slate-800'
+              : 'opacity-50 cursor-default'
+            : active
+              ? 'bg-brand text-white'
+              : 'hover:bg-slate-100 dark:hover:bg-slate-800',
+        )}
+        style={{ paddingLeft: 4 + depth * 12 }}
+        onClick={() => {
+          if (selectMode) {
+            if (checkable) onToggleSelect(cat.id)
+            return
+          }
+          onActivate(cat.id)
+          // 点击有子节点的分类时自动展开，方便一次性看到下级
+          if (hasChildren && !isExpanded) onToggleExpand(cat.id)
+        }}
+      >
+        {/* 展开/折叠按钮（无子节点时占位保持对齐） */}
+        {hasChildren ? (
+          <button
+            className={cn(
+              'w-5 h-5 flex items-center justify-center text-[11px] shrink-0 leading-none rounded',
+              'transition-transform duration-150 font-bold',
+              isExpanded ? 'rotate-90' : '',
+              !selectMode && active
+                ? 'text-white hover:bg-white/20'
+                : 'text-slate-500 hover:text-slate-900 hover:bg-slate-200 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-700',
+            )}
+            onClick={(e) => {
+              e.stopPropagation()
+              onToggleExpand(cat.id)
+            }}
+            onPointerDown={stop}
+            title={isExpanded ? '折叠子分类' : '展开子分类'}
+          >
+            ▶
+          </button>
+        ) : (
+          <span className="w-5 shrink-0" />
+        )}
+
+        {selectMode && checkable ? (
+          <span
+            className={cn(
+              'w-4 h-4 rounded border flex items-center justify-center text-[10px] shrink-0',
+              isSelected
+                ? 'bg-brand border-brand text-white'
+                : 'border-slate-300 dark:border-slate-600',
+            )}
+          >
+            {isSelected && '✓'}
+          </span>
+        ) : (
+          <span
+            className="shrink-0"
+            onClick={stop}
+            onPointerDown={stop}
+          >
+            <IconPicker
+              value={cat.icon}
+              defaultEmoji={depth === 0 ? '📁' : '📂'}
+              onChange={onIconChange}
+              trigger={(open) => (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    open()
+                  }}
+                  onPointerDown={stop}
+                  title="点击修改图标"
+                  className={cn(
+                    'flex items-center justify-center w-5 h-5 rounded',
+                    'hover:bg-slate-200/70 dark:hover:bg-slate-700/60',
+                    !selectMode && active && 'hover:bg-white/20',
+                  )}
+                >
+                  <IconView
+                    value={cat.icon}
+                    fallback={depth === 0 ? '📁' : '📂'}
+                    emojiClassName="text-base leading-none"
+                    imgClassName="w-4 h-4 rounded-sm object-contain"
+                  />
+                </button>
+              )}
+            />
+          </span>
+        )}
+
+        {editingId === cat.id ? (
+          <input
+            autoFocus
+            value={editingName}
+            onChange={(e) => onChangeEditingName(e.target.value)}
+            onBlur={() => void onCommitEdit()}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void onCommitEdit()
+              if (e.key === 'Escape') onCancelEdit()
+            }}
+            onClick={stop}
+            onPointerDown={stop}
+            className="flex-1 min-w-0 bg-transparent outline-none text-sm"
+          />
+        ) : (
+          <span
+            className="flex-1 min-w-0 text-sm truncate"
+            title={cat.name}
+            onDoubleClick={(e) => {
+              if (selectMode) return
+              e.stopPropagation()
+              onStartEdit(cat.id, cat.name)
+            }}
+          >
+            {cat.name}
+          </span>
+        )}
+
+        <span
+          className={cn(
+            'text-xs shrink-0 tabular-nums',
+            !selectMode && active ? 'text-white/70' : 'text-slate-400',
+          )}
+        >
+          {countOf(cat.id)}
+        </span>
+
+        {!selectMode && (
+          <>
+            {/* 新建子分类（始终可见，避免 hover 不触发的不确定性） */}
+            <button
+              className={cn(
+                'w-5 h-5 flex items-center justify-center rounded text-base leading-none shrink-0',
+                'transition-colors',
+                active
+                  ? 'text-white/70 hover:text-white hover:bg-white/20'
+                  : 'text-slate-400 hover:text-brand hover:bg-slate-200/80 dark:hover:bg-slate-700',
+              )}
+              onClick={(e) => {
+                e.stopPropagation()
+                onAddSub(cat)
+              }}
+              onPointerDown={stop}
+              title={`在「${cat.name}」下新建子分类`}
+            >
+              +
+            </button>
+            {/* 删除（hover 显示，避免误触） */}
+            <button
+              className={cn(
+                'opacity-0 group-hover:opacity-100 transition-opacity text-xs px-0.5 shrink-0',
+                active ? 'text-white/80' : 'text-slate-400 hover:text-red-500',
+              )}
+              onClick={(e) => {
+                e.stopPropagation()
+                const msg = hasChildren
+                  ? `删除「${cat.name}」及其所有子文件夹和书签？`
+                  : `删除「${cat.name}」及其下所有书签？`
+                if (window.confirm(msg)) onRemove(cat.id)
+              }}
+              onPointerDown={stop}
+              title="删除"
+            >
+              ✕
+            </button>
+          </>
+        )}
+      </div>
+
+      {/* 子节点：选择模式下不展开，避免操作语义混乱 */}
+      {hasChildren && isExpanded && !selectMode && (
+        <div>{renderChildren()}</div>
+      )}
+    </div>
+  )
+}
+
+function collectDescendantIds(
+  ids: string[],
+  allCats: Category[],
+): Set<string> {
   const result = new Set(ids)
   const queue = [...ids]
   while (queue.length > 0) {
     const pid = queue.shift()!
     for (const c of allCats) {
-      if (c.parentId === pid && !result.has(c.id)) { result.add(c.id); queue.push(c.id) }
+      if (c.parentId === pid && !result.has(c.id)) {
+        result.add(c.id)
+        queue.push(c.id)
+      }
     }
   }
   return result

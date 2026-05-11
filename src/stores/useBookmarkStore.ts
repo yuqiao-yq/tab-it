@@ -25,6 +25,11 @@ interface BookmarkState {
   removeCategory: (id: string) => Promise<void>
   removeCategories: (ids: string[]) => Promise<void>
   reorderCategories: (orderedIds: string[]) => Promise<void>
+  /** 仅在同一父级（parentId 相同）的兄弟节点中重排，不影响其他分类 */
+  reorderSiblings: (
+    parentId: string | undefined,
+    orderedIds: string[],
+  ) => Promise<void>
 
   addCard: (input: {
     categoryId: string
@@ -52,10 +57,13 @@ export const useBookmarkStore = create<BookmarkState>((set, get) => ({
       repo.getCategories(),
       repo.getCards(),
     ])
+    // 默认激活：排序第一的【顶层】分类（与用户在侧栏看到的"第一项"对齐）
+    // categories 已按 order 排序，但可能子级与顶层混杂，需显式取顶层
+    const firstTop = categories.find((c) => !c.parentId)
     set({
       categories,
       cards,
-      activeCategoryId: categories[0]?.id ?? null,
+      activeCategoryId: firstTop?.id ?? categories[0]?.id ?? null,
       loading: false,
       initialized: true,
     })
@@ -220,6 +228,24 @@ export const useBookmarkStore = create<BookmarkState>((set, get) => ({
     // 批量写入，避免并发"读-改-写"竞态
     await getRepository().saveCategories(reordered)
     set({ categories: reordered })
+  },
+
+  async reorderSiblings(parentId, orderedIds) {
+    const now = Date.now()
+    const orderMap = new Map(orderedIds.map((id, i) => [id, i]))
+    const updated: Category[] = []
+    const next = get().categories.map((c) => {
+      // 仅匹配同一父级下、且在 orderedIds 中的项；其他保持原状
+      const sameParent = (c.parentId ?? '') === (parentId ?? '')
+      if (!sameParent || !orderMap.has(c.id)) return c
+      const merged = { ...c, order: orderMap.get(c.id)!, updatedAt: now }
+      updated.push(merged)
+      return merged
+    })
+    if (updated.length > 0) {
+      await getRepository().saveCategories(updated)
+    }
+    set({ categories: next })
   },
 
   async addCard({ categoryId, title, url }) {
