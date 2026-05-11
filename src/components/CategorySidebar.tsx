@@ -448,11 +448,12 @@ export function CategorySidebar() {
                 </button>
                 <button
                   onClick={enterSelectMode}
-                  className="btn-ghost !p-1 h-6 w-6 text-xs"
+                  className="btn-ghost !p-1 h-6 w-6 flex items-center justify-center"
                   disabled={topLevel.length === 0}
                   title="批量管理"
+                  aria-label="批量管理"
                 >
-                  ⚙
+                  <BulkSelectIcon />
                 </button>
                 <button
                   onClick={handleAdd}
@@ -820,6 +821,32 @@ function SortableSidebarRow(props: RowProps) {
         <div>{renderChildren()}</div>
       )}
     </div>
+  )
+}
+
+/** 批量多选 icon（左侧三个 ✓、右侧三条横线，经典 list-checks 形态） */
+function BulkSelectIcon() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      {/* 左侧 3 个勾选 */}
+      <polyline points="3 5 5 7 8 4" />
+      <polyline points="3 12 5 14 8 11" />
+      <polyline points="3 19 5 21 8 18" />
+      {/* 右侧 3 条横线 */}
+      <line x1="11" y1="5.5" x2="20" y2="5.5" />
+      <line x1="11" y1="12.5" x2="20" y2="12.5" />
+      <line x1="11" y1="19.5" x2="20" y2="19.5" />
+    </svg>
   )
 }
 
