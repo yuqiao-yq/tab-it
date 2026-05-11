@@ -7,6 +7,10 @@ import type { BulkImportMode } from '../repositories/types'
 import { cn } from '../utils/cn'
 import { WebSearchBox } from './WebSearchBox'
 import { CardMenu } from './CardMenu'
+import { HelpDialog } from './HelpDialog'
+// docs/USER_GUIDE.md 是用户文档的唯一来源，弹窗内容由它驱动
+// （Vite 的 ?raw 后缀会把文件以纯字符串形式 import 进来）
+import userGuideMd from '../../docs/USER_GUIDE.md?raw'
 
 interface PendingImport {
   data: ExportData
@@ -29,6 +33,8 @@ export function Topbar() {
   // 两类设置弹窗（互斥；从齿轮气泡菜单触发）
   const [dataDialogOpen, setDataDialogOpen] = useState(false)
   const [styleDialogOpen, setStyleDialogOpen] = useState(false)
+  // 帮助文档弹窗（齿轮左侧的「?」按钮触发）
+  const [helpDialogOpen, setHelpDialogOpen] = useState(false)
 
   const handleExport = async () => {
     const data = await getRepository().bulkExport()
@@ -121,6 +127,21 @@ export function Topbar() {
       {/* 中央：网页搜索框（替代被覆盖的浏览器地址栏，支持切换搜索引擎） */}
       <WebSearchBox />
       <div className="flex items-center gap-2 shrink-0">
+        {/* 帮助文档 → 弹出使用文档弹窗（位于齿轮左侧，与齿轮同尺寸 9×9） */}
+        <button
+          type="button"
+          onClick={() => setHelpDialogOpen(true)}
+          className={cn(
+            'w-9 h-9 flex items-center justify-center rounded-md',
+            'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100',
+            'hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors',
+            helpDialogOpen && 'text-slate-800 dark:text-slate-100 bg-slate-100 dark:bg-slate-800',
+          )}
+          title="帮助文档"
+          aria-label="帮助文档"
+        >
+          <HelpIcon />
+        </button>
         {/* 齿轮 → 弹出小气泡菜单（复用 CardMenu，与卡片右键菜单同款样式） */}
         <CardMenu
           align="right"
@@ -196,6 +217,16 @@ export function Topbar() {
             onChangeMode={setMode}
             onCancel={() => !importing && setPending(null)}
             onConfirm={handleConfirmImport}
+          />,
+          document.body,
+        )}
+
+      {/* 帮助文档弹窗：渲染 docs/USER_GUIDE.md 的内容 */}
+      {helpDialogOpen &&
+        createPortal(
+          <HelpDialog
+            source={userGuideMd}
+            onClose={() => setHelpDialogOpen(false)}
           />,
           document.body,
         )}
@@ -809,6 +840,27 @@ function PaletteIcon() {
       <circle cx="8.5" cy="7.5" r=".5" fill="currentColor" />
       <circle cx="6.5" cy="12.5" r=".5" fill="currentColor" />
       <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z" />
+    </svg>
+  )
+}
+
+/** 帮助 icon：圆 + 问号；尺寸与齿轮按钮内的视觉权重对齐（16×16） */
+function HelpIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <circle cx="12" cy="12" r="9" />
+      <path d="M9.5 9a2.5 2.5 0 0 1 5 0c0 1.5-2.5 2-2.5 4" />
+      <line x1="12" y1="17" x2="12" y2="17.01" />
     </svg>
   )
 }
