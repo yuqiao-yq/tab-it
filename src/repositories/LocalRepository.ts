@@ -1,3 +1,4 @@
+import { browser } from 'wxt/browser'
 import type {
   BookmarkCard,
   Category,
@@ -18,7 +19,7 @@ const KEYS = {
 } as const
 
 /**
- * 基于 chrome.storage.local 的本地实现。
+ * 基于 browser.storage.local 的本地实现。
  *
  * 适用场景：
  * - V1 MVP 全量数据
@@ -26,16 +27,20 @@ const KEYS = {
  *
  * 容量限制：5MB（够存数千个书签元数据）。
  * 大体积数据（缩略图等）后续迁到 Dexie/IndexedDB。
+ *
+ * 注意：必须使用 wxt/browser 导出的 `browser`（在 Firefox 下指向原生
+ * `globalThis.browser`，是 Promise-based；在 Chrome 下指向 `globalThis.chrome`）。
+ * 直接使用 `chrome.*` 在 Firefox 下不会返回 Promise，会导致 await 拿到 undefined。
  */
 export class LocalRepository implements BookmarkRepository {
   // ---------- helpers ----------
   private async readArray<T>(key: string): Promise<T[]> {
-    const result = await chrome.storage.local.get(key)
+    const result = await browser.storage.local.get(key)
     return (result[key] as T[]) ?? []
   }
 
   private async writeArray<T>(key: string, value: T[]): Promise<void> {
-    await chrome.storage.local.set({ [key]: value })
+    await browser.storage.local.set({ [key]: value })
   }
 
   // ---------- 分类 ----------
@@ -130,12 +135,12 @@ export class LocalRepository implements BookmarkRepository {
 
   // ---------- 设置 ----------
   async getSettings(): Promise<UserSettings> {
-    const result = await chrome.storage.local.get(KEYS.settings)
+    const result = await browser.storage.local.get(KEYS.settings)
     return { ...DEFAULT_SETTINGS, ...(result[KEYS.settings] ?? {}) }
   }
 
   async saveSettings(settings: UserSettings): Promise<void> {
-    await chrome.storage.local.set({ [KEYS.settings]: settings })
+    await browser.storage.local.set({ [KEYS.settings]: settings })
   }
 
   // ---------- 批量 ----------
@@ -256,7 +261,7 @@ export class LocalRepository implements BookmarkRepository {
   }
 
   async clear(): Promise<void> {
-    await chrome.storage.local.remove([
+    await browser.storage.local.remove([
       KEYS.categories,
       KEYS.cards,
       KEYS.settings,

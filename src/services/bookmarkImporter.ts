@@ -1,3 +1,4 @@
+import { browser, type Browser } from 'wxt/browser'
 import type { BookmarkCard, Category } from '../types/bookmark'
 import { v4 as uuid } from 'uuid'
 
@@ -22,10 +23,12 @@ export async function importFromBrowserBookmarks(): Promise<{
   categories: Category[]
   cards: BookmarkCard[]
 }> {
-  if (!chrome.bookmarks) {
+  // 使用 wxt/browser 的 browser：Firefox 下走原生 Promise API，
+  // Chrome 下回退到 globalThis.chrome。直接用 chrome.* 在 Firefox 不返回 Promise。
+  if (!browser.bookmarks) {
     return { categories: [], cards: [] }
   }
-  const tree = await chrome.bookmarks.getTree()
+  const tree = await browser.bookmarks.getTree()
   const root = tree[0]
   if (!root?.children) return { categories: [], cards: [] }
 
@@ -47,7 +50,7 @@ export async function importFromBrowserBookmarks(): Promise<{
  * @param parentId   对应父分类的 id（根容器无父分类时为 undefined）
  */
 function walkFolder(
-  node: chrome.bookmarks.BookmarkTreeNode,
+  node: Browser.bookmarks.BookmarkTreeNode,
   parentId: string | undefined,
   categories: Category[],
   cards: BookmarkCard[],

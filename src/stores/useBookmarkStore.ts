@@ -1,11 +1,12 @@
 import { create } from 'zustand'
 import { v4 as uuid } from 'uuid'
+import { browser } from 'wxt/browser'
 import type { BookmarkCard, Category, UserSettings } from '../types/bookmark'
 import { DEFAULT_SETTINGS } from '../types/bookmark'
 import { getRepository } from '../repositories'
 import { importFromBrowserBookmarks } from '../services/bookmarkImporter'
 
-/** chrome.storage.local key（与 LocalRepository 的 KEYS 平级，专给"最近使用"使用） */
+/** browser.storage.local key（与 LocalRepository 的 KEYS 平级，专给"最近使用"使用） */
 const RECENT_ENTRIES_KEY = 'tabit:recent'
 const RECENT_LIMIT_KEY = 'tabit:recentLimit'
 /** 默认显示数量；用户可在 RecentSection 中修改并持久化 */
@@ -480,7 +481,7 @@ export const useBookmarkStore = create<BookmarkState>((set, get) => ({
     const clamped = Math.max(1, Math.min(MAX_RECENT_BUFFER, Math.floor(n)))
     if (clamped === get().recentLimit) return
     set({ recentLimit: clamped })
-    await chrome.storage.local.set({ [RECENT_LIMIT_KEY]: clamped })
+    await browser.storage.local.set({ [RECENT_LIMIT_KEY]: clamped })
   },
 
   async clearRecent() {
@@ -525,8 +526,8 @@ function groupBy<T, K>(arr: T[], keyFn: (item: T) => K): Map<K, T[]> {
 }
 
 /**
- * 从 chrome.storage.local 读取「最近使用」相关数据。
- * 故意走 chrome.storage 直接访问而不扩 BookmarkRepository 接口：
+ * 从 browser.storage.local 读取「最近使用」相关数据。
+ * 故意走 browser.storage 直接访问而不扩 BookmarkRepository 接口：
  * - recent 数据是用户在本扩展内的临时行为日志，与"书签数据"语义不同
  * - 后续如要同步到云端，可单独抽 RecentRepository
  */
@@ -535,7 +536,7 @@ async function loadRecentFromStorage(): Promise<{
   limit: number
 }> {
   try {
-    const result = await chrome.storage.local.get([
+    const result = await browser.storage.local.get([
       RECENT_ENTRIES_KEY,
       RECENT_LIMIT_KEY,
     ])
@@ -558,8 +559,8 @@ async function loadRecentFromStorage(): Promise<{
 
 async function saveRecentEntries(entries: RecentEntry[]): Promise<void> {
   try {
-    await chrome.storage.local.set({ [RECENT_ENTRIES_KEY]: entries })
+    await browser.storage.local.set({ [RECENT_ENTRIES_KEY]: entries })
   } catch {
-    // chrome.storage 偶发失败不影响内存状态
+    // browser.storage 偶发失败不影响内存状态
   }
 }

@@ -1,3 +1,5 @@
+import { browser } from 'wxt/browser'
+
 /**
  * 获取网站 favicon
  *
@@ -19,9 +21,9 @@ export function getFaviconUrl(pageUrl: string, size = 32): string {
   if (!pageUrl) return ''
   if (isChromeRuntime) {
     try {
-      // Chrome MV3 的 _favicon 端点
-      if (typeof chrome !== 'undefined' && chrome.runtime?.id) {
-        const url = new URL(chrome.runtime.getURL('/_favicon/'))
+      // Chrome MV3 的 _favicon 端点（runtime.getURL 是同步 API，跨 chrome/browser 都可用）
+      if (browser.runtime?.id) {
+        const url = new URL(browser.runtime.getURL('/_favicon/'))
         url.searchParams.set('pageUrl', pageUrl)
         url.searchParams.set('size', String(size))
         return url.toString()
@@ -30,7 +32,7 @@ export function getFaviconUrl(pageUrl: string, size = 32): string {
       /* fallthrough to Google */
     }
   }
-  // 降级方案：Google s2/favicons（Firefox / 取不到 chrome.runtime 时）
+  // 降级方案：Google s2/favicons（Firefox / 取不到 runtime 时）
   try {
     const u = new URL(pageUrl)
     return `https://www.google.com/s2/favicons?domain=${u.hostname}&sz=${size}`
