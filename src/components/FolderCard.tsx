@@ -3,6 +3,7 @@ import { useBookmarkStore } from '../stores/useBookmarkStore'
 import { cn } from '../utils/cn'
 import { IconPicker } from './IconPicker'
 import { IconView } from '../utils/icon'
+import { CardMenu, MenuIcons } from './CardMenu'
 
 interface Props {
   category: Category
@@ -65,18 +66,44 @@ export function FolderCard({ category }: Props) {
             )}
           />
         </div>
-        <button
-          className="opacity-0 group-hover:opacity-100 transition-opacity text-xs text-slate-400 hover:text-red-500 px-1"
-          onClick={async (e) => {
-            e.stopPropagation()
-            const hasChildren = categories.some((c) => c.parentId === category.id)
-            const msg = hasChildren
-              ? `删除文件夹「${category.name}」及其所有子文件夹和书签？`
-              : `删除文件夹「${category.name}」及其下所有书签？`
-            if (window.confirm(msg)) await removeCategory(category.id)
-          }}
-          title="删除"
-        >✕</button>
+        <div
+          className="opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity"
+          onClick={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <CardMenu
+            ariaLabel={`文件夹「${category.name}」操作菜单`}
+            items={[
+              {
+                key: 'rename',
+                label: '重命名',
+                icon: <MenuIcons.Edit />,
+                onSelect: () => {
+                  const next = window.prompt('重命名文件夹', category.name)
+                  if (next === null) return
+                  const name = next.trim()
+                  if (!name || name === category.name) return
+                  void updateCategory(category.id, { name })
+                },
+              },
+              {
+                key: 'delete',
+                label: '删除',
+                icon: <MenuIcons.Trash />,
+                danger: true,
+                onSelect: () => {
+                  const hasChildren = categories.some(
+                    (c) => c.parentId === category.id,
+                  )
+                  const msg = hasChildren
+                    ? `删除文件夹「${category.name}」及其所有子文件夹和书签？`
+                    : `删除文件夹「${category.name}」及其下所有书签？`
+                  if (window.confirm(msg)) void removeCategory(category.id)
+                },
+              },
+            ]}
+          />
+        </div>
       </div>
 
       {/* 下半：名称 + 数量 */}

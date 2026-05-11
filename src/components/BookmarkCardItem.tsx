@@ -7,6 +7,7 @@ import { useBookmarkStore } from '../stores/useBookmarkStore'
 import { cn } from '../utils/cn'
 import { IconPicker } from './IconPicker'
 import { isImageIcon } from '../utils/icon'
+import { CardMenu, MenuIcons, type CardMenuItem } from './CardMenu'
 
 interface Props {
   card: BookmarkCard
@@ -241,33 +242,36 @@ export function BookmarkCardItem({ card }: Props) {
         )}
 
         {!editing && (
-          <div className="flex flex-col gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-            <button
-              type="button"
-              className="text-[11px] text-slate-400 hover:text-brand px-1 leading-none"
-              onClick={(e) => {
-                e.preventDefault()
-                e.stopPropagation()
-                startEdit()
-              }}
-              onPointerDown={(e) => e.stopPropagation()}
-              title="编辑标题与 URL"
-            >
-              ✎
-            </button>
-            <button
-              type="button"
-              className="text-[11px] text-slate-400 hover:text-red-500 px-1 leading-none"
-              onClick={(e) => {
-                e.preventDefault()
-                e.stopPropagation()
-                handleDelete()
-              }}
-              onPointerDown={(e) => e.stopPropagation()}
-              title="删除"
-            >
-              ✕
-            </button>
+          <div
+            className="opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity shrink-0"
+            // 菜单触发器自身不应触发卡片打开
+            onClick={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <CardMenu
+              ariaLabel={`书签「${card.title}」操作菜单`}
+              items={[
+                {
+                  key: 'edit',
+                  label: '编辑',
+                  icon: <MenuIcons.Edit />,
+                  onSelect: startEdit,
+                },
+                {
+                  key: 'note',
+                  label: card.description ? '编辑备注' : '添加备注',
+                  icon: <MenuIcons.Note />,
+                  onSelect: handleEditNote,
+                },
+                {
+                  key: 'delete',
+                  label: '删除',
+                  icon: <MenuIcons.Trash />,
+                  danger: true,
+                  onSelect: handleDelete,
+                } satisfies CardMenuItem,
+              ]}
+            />
           </div>
         )}
       </div>
