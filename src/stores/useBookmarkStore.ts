@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { v4 as uuid } from 'uuid'
-import type { BookmarkCard, Category } from '../types/bookmark'
+import type { BookmarkCard, Category, UserSettings } from '../types/bookmark'
+import { DEFAULT_SETTINGS } from '../types/bookmark'
 import { getRepository } from '../repositories'
 import { importFromBrowserBookmarks } from '../services/bookmarkImporter'
 
@@ -34,6 +35,8 @@ interface BookmarkState {
   recentEntries: RecentEntry[]
   /** 「最近使用」展示的最大条目数（缓冲区可能多于此值） */
   recentLimit: number
+  /** 用户设置（主题 / 背景 等） */
+  settings: UserSettings
 
   // ----- actions -----
   init: () => Promise<void>
@@ -81,6 +84,9 @@ interface BookmarkState {
   setRecentLimit: (n: number) => Promise<void>
   /** 清空所有最近使用记录 */
   clearRecent: () => Promise<void>
+
+  /** 局部更新用户设置（自动持久化） */
+  updateSettings: (patch: Partial<UserSettings>) => Promise<void>
 }
 
 export const useBookmarkStore = create<BookmarkState>((set, get) => ({
@@ -92,14 +98,16 @@ export const useBookmarkStore = create<BookmarkState>((set, get) => ({
   initialized: false,
   recentEntries: [],
   recentLimit: DEFAULT_RECENT_LIMIT,
+  settings: DEFAULT_SETTINGS,
 
   async init() {
     set({ loading: true })
     const repo = getRepository()
-    const [categories, cards, recent] = await Promise.all([
+    const [categories, cards, recent, settings] = await Promise.all([
       repo.getCategories(),
       repo.getCards(),
       loadRecentFromStorage(),
+      repo.getSettings(),
     ])
     // 默认激活：排序第一的【顶层】分类（与用户在侧栏看到的"第一项"对齐）
     // categories 已按 order 排序，但可能子级与顶层混杂，需显式取顶层
@@ -113,6 +121,7 @@ export const useBookmarkStore = create<BookmarkState>((set, get) => ({
       activeCategoryId: firstTop?.id ?? categories[0]?.id ?? null,
       recentEntries: cleanedEntries,
       recentLimit: recent.limit,
+      settings,
       loading: false,
       initialized: true,
     })
@@ -478,6 +487,12 @@ export const useBookmarkStore = create<BookmarkState>((set, get) => ({
     if (get().recentEntries.length === 0) return
     set({ recentEntries: [] })
     await saveRecentEntries([])
+  },
+
+  async updateSettings(patch) {
+    const next: UserSettings = { ...get().settings, ...patch }
+    set({ settings: next })
+    await getRepository().saveSettings(next)
   },
 }))
 

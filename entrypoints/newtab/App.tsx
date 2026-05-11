@@ -13,10 +13,54 @@ export default function App() {
   const activeCategoryId = useBookmarkStore((s) => s.activeCategoryId)
   const importFromBrowser = useBookmarkStore((s) => s.importFromBrowser)
   const addCategory = useBookmarkStore((s) => s.addCategory)
+  const theme = useBookmarkStore((s) => s.settings.theme)
+  const wallpaper = useBookmarkStore((s) => s.settings.wallpaper)
 
   useEffect(() => {
     void init()
   }, [init])
+
+  // ─── 主题（明亮 / 黑暗 / 跟随系统） ────────────────
+  // Tailwind darkMode='class' → 通过 html.dark 控制
+  useEffect(() => {
+    const root = document.documentElement
+    const apply = (isDark: boolean) => root.classList.toggle('dark', isDark)
+    if (theme === 'dark') {
+      apply(true)
+      return
+    }
+    if (theme === 'light') {
+      apply(false)
+      return
+    }
+    // auto：监听系统配色
+    const mq = window.matchMedia('(prefers-color-scheme: dark)')
+    apply(mq.matches)
+    const onChange = (e: MediaQueryListEvent) => apply(e.matches)
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [theme])
+
+  // ─── 自定义背景 ────────────────────────────────
+  // 约定 wallpaper 字段语义：
+  //   - 空 / undefined        → 清除自定义背景，回退到 global.css 的渐变
+  //   - linear/radial/conic-  → 直接当 background-image 使用
+  //   - 其他（http/https/data:）→ 包成 url(...) 当背景图
+  useEffect(() => {
+    const body = document.body
+    if (!wallpaper) {
+      body.style.backgroundImage = ''
+      body.style.backgroundSize = ''
+      body.style.backgroundPosition = ''
+      body.style.backgroundAttachment = ''
+      return
+    }
+    const isGradient = /^(linear|radial|conic)-gradient\(/.test(wallpaper)
+    body.style.backgroundImage = isGradient ? wallpaper : `url("${wallpaper}")`
+    body.style.backgroundSize = 'cover'
+    body.style.backgroundPosition = 'center'
+    body.style.backgroundAttachment = 'fixed'
+  }, [wallpaper])
 
   // 顶层分类数量（侧栏只显示顶层）
   const topLevelCount = categories.filter((c) => !c.parentId).length
