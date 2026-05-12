@@ -23,10 +23,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # 不写 version，自动读取 package.json 的 packageManager 字段
+      # 保证本地与 CI 使用同一 pnpm 版本
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: 9
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -35,8 +35,8 @@ jobs:
           cache: pnpm
 
       - name: Install dependencies
-        # --network-timeout: 单个请求超时阈值放宽到 5 分钟，缓解网络抖动
-        run: pnpm install --frozen-lockfile --network-timeout 300000
+        # network-timeout 等参数已配置在 .npmrc 中
+        run: pnpm install --frozen-lockfile
 
       - name: Type check
         run: pnpm compile
