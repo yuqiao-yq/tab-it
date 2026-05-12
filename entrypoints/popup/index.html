@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tab It</title>
+    <style>
+      /* popup 自身尺寸：固定 320 宽，高度由内容决定。
+         html/body/#root 的 h-full（来自 global.css）在 popup 里会让窗口被
+         拉到屏幕高度，所以这里覆写为 auto。 */
+      html, body, #root {
+        height: auto !important;
+        width: 320px;
+      }
+      body { margin: 0; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./main.tsx"></script>
+  </body>
+</html>

@@ -19,13 +19,17 @@ export default defineConfig({
       // 'history' 用于「最近使用」模块的「包含浏览器历史」可选功能
       // 默认关闭，用户在 UI 中主动开启后才会调用 history.search
       'history',
+      // 'tabs' 用于工具栏 popup「添加当前页面」功能：读取 active tab 的 title/url
+      'tabs',
       ...(browser === 'chrome' ? ['favicon'] : []),
     ],
     chrome_url_overrides: {
       newtab: 'newtab.html',
     },
+    // 工具栏图标点击后弹出的小窗口；entrypoint 由 entrypoints/popup/ 提供
     action: {
       default_title: 'Tab It',
+      default_popup: 'popup.html',
     },
   }),
   // 抑制 Firefox 2025-11 起新增的 data_collection_permissions 提示
