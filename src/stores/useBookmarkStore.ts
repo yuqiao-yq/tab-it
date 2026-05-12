@@ -24,6 +24,18 @@ export interface RecentEntry {
   openedAt: number
 }
 
+/**
+ * 浏览器历史条目（精简版，只保留 UI 渲染所需字段）。
+ * 来自 browser.history.search()，不持久化到本地存储 —— 每次新开标签页时按需拉取。
+ * 隐私考虑：浏览器原生历史本身已在用户掌控之中，我们只读不写、不复制到自己的存储里。
+ */
+export interface BrowserHistoryItem {
+  url: string
+  title: string
+  /** 最后一次访问时间戳（ms）；某些浏览器返回的 lastVisitTime 可能为 undefined，统一兜底为 0 */
+  lastVisit: number
+}
+
 interface BookmarkState {
   categories: Category[]
   cards: BookmarkCard[]
@@ -36,6 +48,12 @@ interface BookmarkState {
   recentEntries: RecentEntry[]
   /** 「最近使用」展示的最大条目数（缓冲区可能多于此值） */
   recentLimit: number
+  /**
+   * 从浏览器历史拉取的条目（按 lastVisit 倒序）。
+   * 仅当 settings.recentIncludeBrowserHistory 为 true 时才会被填充；
+   * 关闭后会立即被清空，避免内存中残留隐私数据。
+   */
+  browserHistoryItems: BrowserHistoryItem[]
   /** 用户设置（主题 / 背景 等） */
   settings: UserSettings
 
@@ -86,6 +104,24 @@ interface BookmarkState {
   /** 清空所有最近使用记录 */
   clearRecent: () => Promise<void>
 
+  /**
+   * 拉取浏览器历史（chrome.history.search）并写入 browserHistoryItems。
+   * - 仅在 settings.recentIncludeBrowserHistory 为 true 时调用才有意义
+   * - 失败（无权限 / 用户拒绝）时静默吞掉，仅返回空列表，不污染状态
+   */
+  loadBrowserHistory: (maxResults?: number) => Promise<void>
+  /** 从历史中删除一条 url（同步清理 browserHistoryItems） */
+  deleteHistoryUrl: (url: string) => Promise<void>
+  /**
+   * 把一条历史项加入当前 activeCategory 作为书签卡片。
+   * - 已经存在 (categoryId, url) 相同的卡片时跳过（与 importFromBrowser 的去重一致）
+   * - 返回新建（或命中复用）的卡片；如果当前没有 activeCategory 则返回 null
+   */
+  addCardFromHistory: (input: {
+    url: string
+    title: string
+  }) => Promise<BookmarkCard | null>
+
   /** 局部更新用户设置（自动持久化） */
   updateSettings: (patch: Partial<UserSettings>) => Promise<void>
 }
@@ -99,6 +135,7 @@ export const useBookmarkStore = create<BookmarkState>((set, get) => ({
   initialized: false,
   recentEntries: [],
   recentLimit: DEFAULT_RECENT_LIMIT,
+  browserHistoryItems: [],
   settings: DEFAULT_SETTINGS,
 
   async init() {
@@ -126,6 +163,11 @@ export const useBookmarkStore = create<BookmarkState>((set, get) => ({
       loading: false,
       initialized: true,
     })
+    // 用户上次开启了「合并浏览器历史」→ 启动时自动拉取一次
+    // 不阻塞 init 完成，让首屏先把书签渲染出来，history 异步追上去即可
+    if (settings.recentIncludeBrowserHistory) {
+      void get().loadBrowserHistory()
+    }
   },
 
   async importFromBrowser() {
@@ -490,10 +532,58 @@ export const useBookmarkStore = create<BookmarkState>((set, get) => ({
     await saveRecentEntries([])
   },
 
+  async loadBrowserHistory(maxResults = MAX_RECENT_BUFFER) {
+    // 关闭开关时不加载；防御性检查，避免被误调用拉取数据
+    if (!get().settings.recentIncludeBrowserHistory) return
+    const items = await fetchBrowserHistory(maxResults)
+    set({ browserHistoryItems: items })
+  },
+
+  async deleteHistoryUrl(url) {
+    // 1. 从浏览器原生历史中删除（如果可用）
+    try {
+      const api = (browser as unknown as {
+        history?: { deleteUrl?: (details: { url: string }) => Promise<void> }
+      }).history
+      if (api?.deleteUrl) {
+        await api.deleteUrl({ url })
+      }
+    } catch {
+      /* ignore: 没权限或浏览器不支持 */
+    }
+    // 2. 同步内存状态，立即把卡片从 UI 移除（即使原生删除失败也保持 UI 一致）
+    set({
+      browserHistoryItems: get().browserHistoryItems.filter((it) => it.url !== url),
+    })
+  },
+
+  async addCardFromHistory({ url, title }) {
+    const categoryId = get().activeCategoryId
+    if (!categoryId) return null
+    // 去重：同一分类下已有相同 url 时直接复用，不再追加
+    const exist = get().cards.find(
+      (c) => c.categoryId === categoryId && c.url === url,
+    )
+    if (exist) return exist
+    return await get().addCard({ categoryId, title: title || url, url })
+  },
+
   async updateSettings(patch) {
-    const next: UserSettings = { ...get().settings, ...patch }
+    const prev = get().settings
+    const next: UserSettings = { ...prev, ...patch }
     set({ settings: next })
     await getRepository().saveSettings(next)
+
+    // ─── 副作用：开关切换时同步处理 browserHistoryItems ───
+    const prevOn = !!prev.recentIncludeBrowserHistory
+    const nextOn = !!next.recentIncludeBrowserHistory
+    if (!prevOn && nextOn) {
+      // 关 → 开：立即拉取一次，让用户感知到生效
+      await get().loadBrowserHistory()
+    } else if (prevOn && !nextOn) {
+      // 开 → 关：清空内存，避免历史数据残留
+      set({ browserHistoryItems: [] })
+    }
   },
 }))
 
@@ -562,5 +652,49 @@ async function saveRecentEntries(entries: RecentEntry[]): Promise<void> {
     await browser.storage.local.set({ [RECENT_ENTRIES_KEY]: entries })
   } catch {
     // browser.storage 偶发失败不影响内存状态
+  }
+}
+
+/**
+ * 调用 browser.history.search 拉取最近浏览器历史。
+ *
+ * 实现说明：
+ * - WXT 的 browser 类型并非所有浏览器/版本都默认包含 history 字段，
+ *   这里通过窄化的 unknown 断言访问，避免硬编码 chrome.* 失去 firefox 兼容
+ * - text: '' 表示不限关键字；startTime: 0 表示自浏览器有记录起
+ * - 返回结果统一映射为 { url, title, lastVisit }，并按 lastVisit 倒序
+ * - 任何异常都吞掉返回空数组，保证 UI 不崩
+ */
+async function fetchBrowserHistory(maxResults: number): Promise<BrowserHistoryItem[]> {
+  type RawHistoryItem = {
+    url?: string
+    title?: string
+    lastVisitTime?: number
+  }
+  type HistoryApi = {
+    search?: (query: {
+      text: string
+      startTime?: number
+      maxResults?: number
+    }) => Promise<RawHistoryItem[]>
+  }
+  try {
+    const api = (browser as unknown as { history?: HistoryApi }).history
+    if (!api?.search) return []
+    const raw = await api.search({
+      text: '',
+      startTime: 0,
+      maxResults,
+    })
+    return raw
+      .filter((it): it is RawHistoryItem & { url: string } => !!it.url)
+      .map((it) => ({
+        url: it.url,
+        title: it.title?.trim() || it.url,
+        lastVisit: typeof it.lastVisitTime === 'number' ? it.lastVisitTime : 0,
+      }))
+      .sort((a, b) => b.lastVisit - a.lastVisit)
+  } catch {
+    return []
   }
 }

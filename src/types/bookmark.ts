@@ -55,6 +55,13 @@ export interface UserSettings {
    * 不写入此字段，避免折叠后丢失展开时的偏好。
    */
   sidebarWidth?: number
+  /**
+   * 「最近使用」模块是否合并展示浏览器全局历史（任意网站）。
+   * - false（默认）：只展示用户在本扩展内点击过的书签卡片
+   * - true        ：再叠加 browser.history.search 的结果
+   * 隐私敏感，默认关闭，需要用户在 UI 中主动开启。
+   */
+  recentIncludeBrowserHistory?: boolean
 }
 
 /** 左侧分类栏宽度边界（与 CategorySidebar 中的拖拽限制保持一致） */

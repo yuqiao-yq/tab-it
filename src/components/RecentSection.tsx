@@ -1,6 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useBookmarkStore } from '../stores/useBookmarkStore'
+import type { BrowserHistoryItem } from '../stores/useBookmarkStore'
+import type { BookmarkCard } from '../types/bookmark'
 import { BookmarkCardItem } from './BookmarkCardItem'
+import { HistoryCardItem } from './HistoryCardItem'
 import { cn } from '../utils/cn'
 
 const GRID_COLS =
@@ -9,13 +12,14 @@ const GRID_COLS =
 /**
  * 最近使用 模块：常驻在主页面顶部（搜索模式与无激活分类时不渲染）
  *
- * 行为与 CategorySection 对齐：
- * - 头部：折叠按钮 ▸ + 「最近使用」标题 + 计数 + 设置 N + 清空
- * - 卡片：复用 BookmarkCardItem，但 draggable=false（顺序由打开时间决定）
- * - 数据来自 store.recentEntries（按 openedAt 倒序）；切片到 recentLimit
+ * 数据来源：
+ * - 「扩展内」点击过的书签卡片（store.recentEntries）
+ * - 可选：浏览器全局历史（store.browserHistoryItems）—— 由 settings.recentIncludeBrowserHistory 开关控制
  *
- * N（recentLimit）通过 store.setRecentLimit 持久化；UI 用 prompt 获取，
- * 后续若要做更精致的设置面板，只需替换交互不影响数据流。
+ * 合并策略（开启浏览器历史时）：
+ * - 按 url 去重：同一 url 已存在为书签卡片时，仅保留书签项（保留用户的标题/图标自定义）
+ * - 时间排序：书签项用 entry.openedAt，历史项用 item.lastVisit，倒序
+ * - 截断到 recentLimit
  */
 export function RecentSection() {
   const recentEntries = useBookmarkStore((s) => s.recentEntries)
@@ -24,19 +28,63 @@ export function RecentSection() {
   const clearRecent = useBookmarkStore((s) => s.clearRecent)
   const cards = useBookmarkStore((s) => s.cards)
 
+  const includeHistory = useBookmarkStore(
+    (s) => !!s.settings.recentIncludeBrowserHistory,
+  )
+  const browserHistoryItems = useBookmarkStore((s) => s.browserHistoryItems)
+  const updateSettings = useBookmarkStore((s) => s.updateSettings)
+  const loadBrowserHistory = useBookmarkStore((s) => s.loadBrowserHistory)
+
   const [collapsed, setCollapsed] = useState(false)
 
-  // 取最近 N 条，并解引用到具体卡片对象（已删除的卡片自动跳过）
-  const visibleCards = useMemo(() => {
-    const map = new Map(cards.map((c) => [c.id, c]))
-    const result = []
-    for (const entry of recentEntries) {
-      const card = map.get(entry.cardId)
-      if (card) result.push(card)
-      if (result.length >= recentLimit) break
+  // 开启状态下：每次组件挂载、用户切回该新标签页时刷新历史
+  // 通过 visibilitychange 兜底，避免长时间停留后看到陈旧数据
+  useEffect(() => {
+    if (!includeHistory) return
+    void loadBrowserHistory()
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        void loadBrowserHistory()
+      }
     }
-    return result
-  }, [recentEntries, recentLimit, cards])
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [includeHistory, loadBrowserHistory])
+
+  // 合并 + 去重 + 截断
+  const visibleItems = useMemo<RecentRenderItem[]>(() => {
+    const cardMap = new Map(cards.map((c) => [c.id, c]))
+    const bookmarkUrlSet = new Set<string>()
+    const merged: RecentRenderItem[] = []
+
+    // 1. 先把扩展内的"打开记录"展开为书签项（顺便记录 url 用于去重）
+    for (const entry of recentEntries) {
+      const card = cardMap.get(entry.cardId)
+      if (!card) continue
+      bookmarkUrlSet.add(card.url)
+      merged.push({
+        kind: 'bookmark',
+        card,
+        time: entry.openedAt,
+      })
+    }
+
+    // 2. 开启历史时叠加：同 url 已被书签覆盖的跳过
+    if (includeHistory) {
+      for (const item of browserHistoryItems) {
+        if (bookmarkUrlSet.has(item.url)) continue
+        merged.push({
+          kind: 'history',
+          item,
+          time: item.lastVisit,
+        })
+      }
+    }
+
+    // 3. 按时间倒序，截断到 N
+    merged.sort((a, b) => b.time - a.time)
+    return merged.slice(0, recentLimit)
+  }, [recentEntries, recentLimit, cards, includeHistory, browserHistoryItems])
 
   const handleConfigLimit = async () => {
     const next = window.prompt(
@@ -54,13 +102,24 @@ export function RecentSection() {
 
   const handleClear = async () => {
     if (recentEntries.length === 0) return
-    if (!window.confirm('确定清空最近使用记录吗？')) return
+    if (!window.confirm('确定清空最近使用记录吗？\n（仅清空扩展内的打开记录，不会影响浏览器历史）')) return
     await clearRecent()
+  }
+
+  const handleToggleHistory = async () => {
+    if (!includeHistory) {
+      // 关 → 开：提示一次隐私影响，避免用户误操作后看到全部历史被吓到
+      const ok = window.confirm(
+        '开启后，「最近使用」会显示你在浏览器中访问过的任意网站（不限于书签）。\n\n这只是读取本地历史用于展示，不会上传任何数据。是否开启？',
+      )
+      if (!ok) return
+    }
+    await updateSettings({ recentIncludeBrowserHistory: !includeHistory })
   }
 
   return (
     <section className="mb-6">
-      {/* Header：与 CategorySection 子 section 视觉一致，但携带"设置 N / 清空" */}
+      {/* Header：与 CategorySection 子 section 视觉一致 */}
       <header className="flex items-center gap-2 mb-3 group/sec">
         <button
           onClick={() => setCollapsed((v) => !v)}
@@ -68,7 +127,6 @@ export function RecentSection() {
           className={cn(
             'w-7 h-7 flex items-center justify-center text-base rounded',
             'text-slate-500 hover:text-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800',
-            // 仅 hover 整行 header 时显示，避免视觉噪音
             'opacity-0 group-hover/sec:opacity-100 focus-visible:opacity-100 transition-[opacity,transform] duration-150',
             collapsed ? '' : 'rotate-90',
           )}
@@ -80,11 +138,29 @@ export function RecentSection() {
           最近使用
         </span>
         <span className="text-xs text-slate-400 tabular-nums">
-          {visibleCards.length > 0
-            ? `${visibleCards.length} / ${recentLimit}`
-            : `0 / ${recentLimit}`}
+          {visibleItems.length} / {recentLimit}
         </span>
         <div className="flex-1 border-t border-dashed border-slate-200 dark:border-slate-700 ml-2" />
+
+        {/* 开关：包含浏览器历史 */}
+        <button
+          onClick={handleToggleHistory}
+          className={cn(
+            'opacity-0 group-hover/sec:opacity-100 focus-visible:opacity-100 transition-opacity',
+            'btn-ghost !p-1 h-6 px-1.5 text-[11px] leading-none whitespace-nowrap',
+            'inline-flex items-center gap-1',
+            includeHistory && 'text-brand !opacity-100',
+          )}
+          title={
+            includeHistory
+              ? '已包含浏览器历史，点击关闭'
+              : '点击开启：把浏览器全局历史也合并进来'
+          }
+        >
+          <span aria-hidden>{includeHistory ? '🌐' : '🌐'}</span>
+          <span>历史 {includeHistory ? 'ON' : 'OFF'}</span>
+        </button>
+
         <button
           onClick={handleConfigLimit}
           className="opacity-0 group-hover/sec:opacity-100 transition-opacity btn-ghost !p-1 h-6 px-1.5 text-[11px] leading-none whitespace-nowrap"
@@ -99,7 +175,7 @@ export function RecentSection() {
             'opacity-0 group-hover/sec:opacity-100 transition-opacity btn-ghost !p-1 h-6 w-6 text-xs',
             recentEntries.length === 0 && 'cursor-not-allowed opacity-30',
           )}
-          title="清空最近使用"
+          title="清空扩展内的打开记录（不影响浏览器历史）"
         >
           🗑
         </button>
@@ -107,19 +183,28 @@ export function RecentSection() {
 
       {!collapsed && (
         <>
-          {visibleCards.length > 0 ? (
+          {visibleItems.length > 0 ? (
             <div className={GRID_COLS}>
-              {visibleCards.map((card) => (
-                <BookmarkCardItem
-                  key={`recent-${card.id}`}
-                  card={card}
-                  draggable={false}
-                />
-              ))}
+              {visibleItems.map((it) =>
+                it.kind === 'bookmark' ? (
+                  <BookmarkCardItem
+                    key={`recent-bm-${it.card.id}`}
+                    card={it.card}
+                    draggable={false}
+                  />
+                ) : (
+                  <HistoryCardItem
+                    key={`recent-hist-${it.item.url}`}
+                    item={it.item}
+                  />
+                ),
+              )}
             </div>
           ) : (
             <div className="text-xs text-slate-400 pl-7 py-1">
-              点击任意书签后会出现在这里
+              {includeHistory
+                ? '暂无最近访问记录'
+                : '点击任意书签后会出现在这里；也可以打开右上角「历史」开关，叠加浏览器全局历史'}
             </div>
           )}
         </>
@@ -127,3 +212,8 @@ export function RecentSection() {
     </section>
   )
 }
+
+/** 渲染时统一的"最近项"代数视图：要么是书签卡，要么是历史项 */
+type RecentRenderItem =
+  | { kind: 'bookmark'; card: BookmarkCard; time: number }
+  | { kind: 'history'; item: BrowserHistoryItem; time: number }

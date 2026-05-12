@@ -16,6 +16,9 @@ export default defineConfig({
     permissions: [
       'bookmarks',
       'storage',
+      // 'history' 用于「最近使用」模块的「包含浏览器历史」可选功能
+      // 默认关闭，用户在 UI 中主动开启后才会调用 history.search
+      'history',
       ...(browser === 'chrome' ? ['favicon'] : []),
     ],
     chrome_url_overrides: {
