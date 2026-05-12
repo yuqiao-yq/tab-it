@@ -1,5 +1,3 @@
-import { browser } from 'wxt/browser'
-
 /**
  * 获取网站 favicon
  *
@@ -21,9 +19,13 @@ export function getFaviconUrl(pageUrl: string, size = 32): string {
   if (!pageUrl) return ''
   if (isChromeRuntime) {
     try {
-      // Chrome MV3 的 _favicon 端点（runtime.getURL 是同步 API，跨 chrome/browser 都可用）
-      if (browser.runtime?.id) {
-        const url = new URL(browser.runtime.getURL('/_favicon/'))
+      // Chrome MV3 的 _favicon 端点（仅 Chromium 内核可用）
+      // 这里直接用全局 chrome.runtime.getURL：
+      // - WXT 的 browser.runtime.getURL 把参数收敛到 PublicPath（只允许 build 产出的静态资源），
+      //   而 '/_favicon/' 是 Chrome 运行时内置端点，不在静态资源里，会导致类型报错
+      // - chrome.* 是 Chrome 原生注入的全局对象，类型来自 @types/chrome，没有该限制
+      if (typeof chrome !== 'undefined' && chrome.runtime?.id) {
+        const url = new URL(chrome.runtime.getURL('/_favicon/'))
         url.searchParams.set('pageUrl', pageUrl)
         url.searchParams.set('size', String(size))
         return url.toString()
