@@ -440,6 +440,21 @@ const THEME_OPTIONS: Array<{ key: UserSettings['theme']; label: string; icon: st
   { key: 'auto', label: '跟随系统', icon: '🖥️' },
 ]
 
+/**
+ * 文字颜色预设：覆盖最常见的浅/深底配色场景。
+ * 第一项 value 为空 = 清除自定义，回退到主题默认色。
+ */
+const PRESET_FONT_COLORS: Array<{ key: string; label: string; value: string }> = [
+  { key: 'default', label: '默认', value: '' },
+  { key: 'black', label: '纯黑', value: '#0f172a' },
+  { key: 'white', label: '纯白', value: '#f8fafc' },
+  { key: 'gray', label: '中灰', value: '#475569' },
+  { key: 'warm', label: '暖白', value: '#f5f5f4' },
+  { key: 'amber', label: '琥珀', value: '#d97706' },
+]
+
+const HEX_COLOR_RE = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/
+
 function StyleDialog({
   settings,
   onClose,
@@ -452,6 +467,30 @@ function StyleDialog({
   // 自定义图片 URL 输入（仅当 wallpaper 不在预设里时回填）
   const isPreset = PRESET_WALLPAPERS.some((p) => p.value === (settings.wallpaper ?? ''))
   const [customUrl, setCustomUrl] = useState(isPreset ? '' : (settings.wallpaper ?? ''))
+
+  // 字体颜色 hex 文本草稿态：用户在输入框敲不完整 hex 时（如 #ab）不立即应用，
+  // 仅当合法 hex 时才提交到 settings；与 GradientEditor 的 ColorRow 同一思路
+  const currentFontColor = settings.fontColor ?? ''
+  const [fontHexDraft, setFontHexDraft] = useState<string | null>(null)
+  const fontHexDisplay = fontHexDraft ?? currentFontColor
+  const fontHexInvalid =
+    fontHexDraft !== null && fontHexDraft !== '' && !HEX_COLOR_RE.test(fontHexDraft)
+
+  const commitFontHex = () => {
+    if (fontHexDraft === null) return
+    const v = fontHexDraft.trim()
+    if (v === '') {
+      void onUpdate({ fontColor: '' })
+    } else if (HEX_COLOR_RE.test(v)) {
+      void onUpdate({ fontColor: v.toLowerCase() })
+    }
+    setFontHexDraft(null)
+  }
+
+  const handlePickFontColor = (value: string) => {
+    setFontHexDraft(null)
+    void onUpdate({ fontColor: value })
+  }
 
   const handlePickPreset = (value: string) => {
     void onUpdate({ wallpaper: value })
@@ -655,6 +694,107 @@ function StyleDialog({
               提示：本地上传的图片会以 base64 存储在浏览器本地，建议小于 2MB。
             </p>
           </div>
+        </section>
+
+        {/* 文字颜色 */}
+        <section>
+          <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
+            文字颜色
+          </h4>
+
+          {/* 预设色块 */}
+          <div className="grid grid-cols-6 gap-2 mb-3">
+            {PRESET_FONT_COLORS.map((p) => {
+              const active = currentFontColor === p.value
+              return (
+                <button
+                  key={p.key}
+                  type="button"
+                  onClick={() => handlePickFontColor(p.value)}
+                  title={p.label}
+                  className={cn(
+                    'group relative h-10 rounded-md overflow-hidden border-2 transition-all',
+                    active
+                      ? 'border-brand ring-2 ring-brand/30'
+                      : 'border-slate-200 dark:border-slate-700 hover:border-brand/50',
+                  )}
+                  style={
+                    p.value
+                      ? { backgroundColor: p.value }
+                      : {
+                          backgroundImage:
+                            'linear-gradient(135deg, #f1f5f9 50%, #1e293b 50%)',
+                        }
+                  }
+                  aria-label={p.label}
+                >
+                  {p.key === 'default' && (
+                    <span className="absolute inset-0 flex items-center justify-center text-[10px] text-slate-700 mix-blend-difference">
+                      默认
+                    </span>
+                  )}
+                  {active && p.key !== 'default' && (
+                    <span className="absolute bottom-0.5 right-0.5 text-[10px] bg-brand text-white px-1 rounded">
+                      ✓
+                    </span>
+                  )}
+                </button>
+              )
+            })}
+          </div>
+
+          {/* 自定义调色：input[type=color] + hex 文本框 */}
+          <div className="flex items-center gap-2 mb-1">
+            <input
+              type="color"
+              value={
+                HEX_COLOR_RE.test(currentFontColor) ? currentFontColor : '#000000'
+              }
+              onChange={(e) => handlePickFontColor(e.target.value.toLowerCase())}
+              className={cn(
+                'w-9 h-8 rounded cursor-pointer shrink-0 p-0 bg-transparent',
+                'border border-slate-200 dark:border-slate-600',
+              )}
+              title="打开调色盘"
+              aria-label="选择文字颜色"
+            />
+            <input
+              type="text"
+              value={fontHexDisplay}
+              onChange={(e) => setFontHexDraft(e.target.value.trim())}
+              onBlur={commitFontHex}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur()
+                if (e.key === 'Escape') setFontHexDraft(null)
+              }}
+              spellCheck={false}
+              placeholder="#000000"
+              className={cn(
+                'w-28 px-2 py-1 text-xs font-mono rounded',
+                'bg-white dark:bg-slate-900',
+                'border border-slate-200 dark:border-slate-700',
+                'outline-none focus:border-brand focus:ring-1 focus:ring-brand/30',
+                fontHexInvalid && 'border-red-300 dark:border-red-500/60',
+              )}
+            />
+            {currentFontColor && (
+              <button
+                type="button"
+                onClick={() => handlePickFontColor('')}
+                className={cn(
+                  'px-3 py-1.5 text-xs rounded transition-colors',
+                  'text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10',
+                )}
+                title="清除自定义文字颜色"
+              >
+                ✕ 清除
+              </button>
+            )}
+          </div>
+
+          <p className="text-[11px] text-slate-400 leading-relaxed">
+            该颜色仅影响"未单独设色"的文字（如卡片标题等）；按钮主色、辅助灰字等带有自身样式的元素不会被覆盖。
+          </p>
         </section>
       </div>
     </DialogShell>

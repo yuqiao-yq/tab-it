@@ -15,6 +15,7 @@ export default function App() {
   const addCategory = useBookmarkStore((s) => s.addCategory)
   const theme = useBookmarkStore((s) => s.settings.theme)
   const wallpaper = useBookmarkStore((s) => s.settings.wallpaper)
+  const fontColor = useBookmarkStore((s) => s.settings.fontColor)
 
   useEffect(() => {
     void init()
@@ -44,23 +45,48 @@ export default function App() {
   // ─── 自定义背景 ────────────────────────────────
   // 约定 wallpaper 字段语义：
   //   - 空 / undefined        → 清除自定义背景，回退到 global.css 的渐变
-  //   - linear/radial/conic-  → 直接当 background-image 使用
-  //   - 其他（http/https/data:）→ 包成 url(...) 当背景图
+  //   - linear/radial/conic-  → 渐变，写 background-image
+  //   - "#rrggbb" / "#rgb"    → 纯色，写 background-color（注意：
+  //                              不能写 url("#xxx")，浏览器会忽略，这是历史 bug）
+  //   - 其他（http/https/data:）→ 当图片 URL，写 background-image: url(...)
   useEffect(() => {
     const body = document.body
-    if (!wallpaper) {
-      body.style.backgroundImage = ''
-      body.style.backgroundSize = ''
-      body.style.backgroundPosition = ''
-      body.style.backgroundAttachment = ''
-      return
-    }
+    // 每次切换都先 reset 上一轮可能残留的属性，避免「图片 → 纯色」时图片仍在
+    body.style.backgroundImage = ''
+    body.style.backgroundSize = ''
+    body.style.backgroundPosition = ''
+    body.style.backgroundAttachment = ''
+    body.style.backgroundColor = ''
+    if (!wallpaper) return
+
     const isGradient = /^(linear|radial|conic)-gradient\(/.test(wallpaper)
-    body.style.backgroundImage = isGradient ? wallpaper : `url("${wallpaper}")`
-    body.style.backgroundSize = 'cover'
-    body.style.backgroundPosition = 'center'
-    body.style.backgroundAttachment = 'fixed'
+    const isHex = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(wallpaper.trim())
+
+    if (isGradient) {
+      body.style.backgroundImage = wallpaper
+      body.style.backgroundSize = 'cover'
+      body.style.backgroundPosition = 'center'
+      body.style.backgroundAttachment = 'fixed'
+    } else if (isHex) {
+      body.style.backgroundColor = wallpaper
+    } else {
+      body.style.backgroundImage = `url("${wallpaper}")`
+      body.style.backgroundSize = 'cover'
+      body.style.backgroundPosition = 'center'
+      body.style.backgroundAttachment = 'fixed'
+    }
   }, [wallpaper])
+
+  // ─── 自定义文字颜色 ─────────────────────────────
+  // 约定 fontColor 字段语义：
+  //   - 空 / undefined → 清除自定义颜色，回退到 global.css 的默认
+  //                      （亮色：text-slate-900；暗色：text-slate-100）
+  //   - 任意有效 CSS 颜色（建议 hex）→ 写到 body 的 inline style
+  // 注意：只影响"未显式设置颜色"的文字（如卡片标题）；
+  // 显式带 text-slate-400 等类的辅助文字、按钮品牌色等不会被波及，这是预期行为。
+  useEffect(() => {
+    document.body.style.color = fontColor || ''
+  }, [fontColor])
 
   // 顶层分类数量（侧栏只显示顶层）
   const topLevelCount = categories.filter((c) => !c.parentId).length

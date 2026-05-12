@@ -46,6 +46,13 @@ export interface UserSettings {
   layout: 'grid' | 'list'
   cardSize: 'sm' | 'md' | 'lg'
   wallpaper?: string
+  /**
+   * 自定义文字颜色（hex 或任意合法 CSS 颜色字符串）。
+   * - 空 / undefined → 用 global.css 的默认色（亮色：slate-900；暗色：slate-100）
+   * - 设置后 → 通过 inline style 覆盖 body 颜色，影响所有未显式设色的文字
+   * 显式带 text-* 类的辅助文字、按钮品牌色等不会被覆盖，这是预期行为。
+   */
+  fontColor?: string
   language: 'zh-CN' | 'en'
   syncProvider: 'local' | 'drive' | 'supabase'
   /**
