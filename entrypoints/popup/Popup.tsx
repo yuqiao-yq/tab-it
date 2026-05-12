@@ -136,11 +136,18 @@ export default function Popup() {
     submitState !== 'saved'
 
   return (
-    <div className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100">
+    // 显式固定宽度，做 index.html 那段 !important 的双重保险：
+    // 即便 Tailwind base layer 在 popup 里碰巧后加载也不会再被压成窄柱
+    <div
+      style={{ width: 360 }}
+      className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
+    >
       {/* ───── Header ───── */}
-      <header className="flex items-center gap-2 px-3 py-2.5 border-b border-slate-200 dark:border-slate-700">
-        <span className="text-base font-semibold text-brand">Tab It</span>
-        <span className="text-[10px] text-slate-400 leading-none">
+      <header className="flex items-center gap-2 px-3 py-2.5 border-b border-slate-200 dark:border-slate-700 whitespace-nowrap">
+        <span className="text-base font-semibold text-brand leading-none">
+          Tab It
+        </span>
+        <span className="text-[10px] text-slate-400 leading-none truncate">
           书签整理新标签页
         </span>
       </header>
@@ -152,7 +159,7 @@ export default function Popup() {
           onClick={handleOpenNewTab}
           className={cn(
             'w-full h-9 inline-flex items-center justify-center gap-2 rounded-md',
-            'bg-brand text-white text-sm font-medium',
+            'bg-brand text-white text-sm font-medium whitespace-nowrap',
             'hover:bg-brand-600 transition-colors',
           )}
         >

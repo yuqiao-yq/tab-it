@@ -5,14 +5,21 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Tab It</title>
     <style>
-      /* popup 自身尺寸：固定 320 宽，高度由内容决定。
-         html/body/#root 的 h-full（来自 global.css）在 popup 里会让窗口被
-         拉到屏幕高度，所以这里覆写为 auto。 */
-      html, body, #root {
+      /* popup 自身尺寸：固定 360 宽，高度由内容决定。
+         必须用 !important 覆盖 global.css 中 @layer base 的
+         `html, body, #root { @apply h-full w-full }`，否则在 popup 上下文里
+         html/body 会被 width:100% 吃成"按内容撑开"，导致整个弹窗被压成一条窄柱。 */
+      html, body {
+        width: 360px !important;
+        min-width: 360px !important;
         height: auto !important;
-        width: 320px;
+        margin: 0 !important;
       }
-      body { margin: 0; }
+      #root {
+        width: 360px !important;
+        min-width: 360px !important;
+        height: auto !important;
+      }
     </style>
   </head>
   <body>
