@@ -3,7 +3,7 @@ node_modules/
 
 # WXT
 .wxt/
-# .output/
+.output/
 web-ext.config.ts
 stats.html
 stats-*.json

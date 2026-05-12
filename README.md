@@ -15,6 +15,26 @@
 - 🔌 **跨浏览器**：一套代码，多浏览器通用（基于 WebExtension）
 - ☁️ **云同步**（V2 规划中）：Google Drive 免费 / Supabase 付费双轨
 
+## 下载安装
+
+不想自己编译？直接到 [Releases 页面](https://github.com/yuqiao-yq/tab-it/releases/latest) 下载最新版 zip。
+
+### Chrome / Edge / Brave / Opera
+
+1. 下载 `tab-it-x.y.z-chrome.zip` 并解压到任意目录（**不要删除**这个目录，扩展运行时依赖它）
+2. 打开 `chrome://extensions/`（Edge 是 `edge://extensions/`）
+3. 打开右上角 **开发者模式**
+4. 点击 **加载已解压的扩展程序**，选择刚才解压出来的目录
+5. 打开新标签页即可看到 Tab It
+
+### Firefox
+
+1. 下载 `tab-it-x.y.z-firefox.zip`
+2. 打开 `about:debugging#/runtime/this-firefox`
+3. 点击 **临时载入附加组件**，选择 zip 内的 `manifest.json`
+
+注：Firefox 临时载入只在当前会话有效，重启浏览器后会失效。后续会考虑上架到 Chrome 应用商店 / Firefox AMO。
+
 ## 技术栈
 
 - **WXT** + **React 18** + **TypeScript** + **Vite**
