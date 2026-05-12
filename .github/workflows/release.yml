@@ -35,7 +35,8 @@ jobs:
           cache: pnpm
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        # --network-timeout: 单个请求超时阈值放宽到 5 分钟，缓解网络抖动
+        run: pnpm install --frozen-lockfile --network-timeout 300000
 
       - name: Type check
         run: pnpm compile
