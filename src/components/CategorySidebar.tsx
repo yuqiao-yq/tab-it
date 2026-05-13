@@ -25,9 +25,6 @@ import { cn } from '../utils/cn'
 import { IconPicker } from './IconPicker'
 import { IconView } from '../utils/icon'
 
-// 每次 UI 改动时手动 +1，便于在页面右下角确认"是否加载到最新代码"
-const SIDEBAR_BUILD_TAG = 'v5-cross-level-dnd'
-
 // 拖到一行的"上 30% / 中 40% / 下 30%"分别表示三种放置语义
 type DropPosition = 'before' | 'after' | 'inside'
 interface OverInfo {
@@ -573,45 +570,16 @@ export function CategorySidebar() {
           </DndContext>
         </div>
 
-        {/* 数据状态诊断面板：让"折叠/展开为啥没反应"一目了然 */}
+        {/* 数据状态：默认收起为单行 i 信息条，hover 才浮出详情。
+            放在 sidebar 底部对普通用户是噪音，所以做成被动展示。 */}
         {topLevel.length > 0 && (
-          <div className="mt-3 px-2 text-[11px] leading-relaxed text-slate-400 border-t border-slate-200/60 dark:border-slate-700/60 pt-2">
-            <div className="flex items-center justify-between">
-              <span>分类总数</span>
-              <span className="tabular-nums text-slate-500">
-                {categories.length}
-              </span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span>顶层分类</span>
-              <span className="tabular-nums text-slate-500">
-                {topLevel.length}
-              </span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span>含子分类的</span>
-              <span
-                className={cn(
-                  'tabular-nums',
-                  hasAnyChildren ? 'text-brand font-medium' : 'text-slate-400',
-                )}
-              >
-                {allParentIds.length}
-              </span>
-            </div>
-            {!hasAnyChildren && (
-              <div className="mt-1.5 leading-snug">
-                鼠标悬停到分类行右侧会出现{' '}
-                <span className="font-bold text-slate-500">+</span>{' '}
-                「新建子分类」按钮，点一下输入名称即可，新建后会立刻出现{' '}
-                <span className="font-bold text-slate-500">▶</span> 折叠按钮。
-              </div>
-            )}
-            {/* build 标记：用于判断当前页面是否加载了最新代码 */}
-            <div className="mt-1.5 opacity-50 text-[10px]">
-              ui-build: {SIDEBAR_BUILD_TAG}
-            </div>
-          </div>
+          <SidebarStatsHint
+            categoryCount={categories.length}
+            topLevelCount={topLevel.length}
+            cardCount={cards.length}
+            parentCount={allParentIds.length}
+            hasAnyChildren={hasAnyChildren}
+          />
         )}
       </div>
 
@@ -1074,4 +1042,124 @@ function collectDescendantIds(
     }
   }
   return result
+}
+
+/* ─────────────────────────────────────────────────────────────
+ * 侧栏底部统计：默认只显示一行 i + 摘要，hover 后弹出详细面板。
+ * 设计取舍：
+ * - 普通用户不关心"含子分类的 20 个"这种数据；常驻显示是噪音
+ * - 但仍有诊断价值（"为什么没看到子分类？"）；hover 兜底即可
+ * - 弹层用 absolute 定位在按钮上方，避免被 sidebar 的 overflow 裁剪
+ * ───────────────────────────────────────────────────────────── */
+function SidebarStatsHint({
+  categoryCount,
+  topLevelCount,
+  cardCount,
+  parentCount,
+  hasAnyChildren,
+}: {
+  categoryCount: number
+  topLevelCount: number
+  cardCount: number
+  parentCount: number
+  hasAnyChildren: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="mt-2 px-2 pt-2 border-t border-slate-200/60 dark:border-slate-700/60 relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => setOpen(false)}
+        className={cn(
+          'w-full flex items-center justify-between gap-2',
+          'text-[11px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-300',
+          'transition-colors',
+        )}
+        title="点击或悬停查看详细统计"
+        aria-haspopup="true"
+        aria-expanded={open}
+      >
+        <span className="inline-flex items-center gap-1.5">
+          <InfoIconMini />
+          <span className="tabular-nums">
+            {categoryCount} 分类 · {cardCount} 书签
+          </span>
+        </span>
+        <span className="text-[10px] opacity-50">{open ? '▾' : '▸'}</span>
+      </button>
+
+      {open && (
+        <div
+          onMouseEnter={() => setOpen(true)}
+          onMouseLeave={() => setOpen(false)}
+          className={cn(
+            'absolute left-2 right-2 bottom-full mb-1 z-30 p-2.5 rounded-md',
+            'bg-white dark:bg-slate-800',
+            'border border-slate-200 dark:border-slate-700 shadow-lg',
+            'text-[11px] leading-relaxed text-slate-500 dark:text-slate-300',
+          )}
+        >
+          <div className="flex items-center justify-between">
+            <span>分类总数</span>
+            <span className="tabular-nums text-slate-700 dark:text-slate-100">
+              {categoryCount}
+            </span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span>顶层分类</span>
+            <span className="tabular-nums text-slate-700 dark:text-slate-100">
+              {topLevelCount}
+            </span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span>含子分类的</span>
+            <span
+              className={cn(
+                'tabular-nums',
+                hasAnyChildren
+                  ? 'text-brand font-medium'
+                  : 'text-slate-700 dark:text-slate-100',
+              )}
+            >
+              {parentCount}
+            </span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span>书签总数</span>
+            <span className="tabular-nums text-slate-700 dark:text-slate-100">
+              {cardCount}
+            </span>
+          </div>
+          {!hasAnyChildren && (
+            <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-700/60 text-slate-400 leading-snug">
+              没有子分类时，鼠标 hover 到分类右侧的{' '}
+              <span className="font-bold">+</span> 可新建子分类。
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function InfoIconMini() {
+  return (
+    <svg
+      width="11"
+      height="11"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <circle cx="12" cy="12" r="9" />
+      <line x1="12" y1="11" x2="12" y2="17" />
+      <line x1="12" y1="7.5" x2="12" y2="7.51" />
+    </svg>
+  )
 }

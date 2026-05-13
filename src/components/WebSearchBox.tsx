@@ -1,14 +1,22 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { cn } from '../utils/cn'
 import { getFaviconUrl } from '../utils/favicon'
+import { useBookmarkStore } from '../stores/useBookmarkStore'
 
 /**
- * 网页搜索框（替代浏览器地址栏）
- * - 支持切换 Google / Bing / 百度 / DuckDuckGo
- * - 选择的引擎持久化在 localStorage
- * - 回车提交：在「新标签页」打开搜索结果（与 Chrome 新标签页搜索一致）
+ * 统一搜索框（替代浏览器地址栏 + 站内书签搜索）
  *
- * 由于本扩展接管了 chrome://newtab，用户失去了原生搜索栏，所以这里补一个等价能力。
+ * 行为：
+ * - 默认：实时本地搜索（输入即同步到 store.searchKeyword，BookmarkGrid 切到搜索结果视图）
+ * - 输入以 `@web ` 开头 → 标记为「网页搜索模式」，本地搜索结果不再触发；
+ *   回车时去掉前缀，用所选搜索引擎打开新标签页
+ * - 输入以 `@bm ` 开头 → 强制本地搜索（语义化别名，行为与默认一致）
+ * - 默认模式回车：
+ *     - 本地有匹配 → 打开第一个匹配书签（沿用用户最常见诉求：找一个书签直接打开）
+ *     - 没有匹配     → 自动 fallback 到所选搜索引擎搜全网
+ *
+ * 之前 Breadcrumb 右侧也有一个独立的"搜索书签"框，跟顶部网页搜索分裂。
+ * 现在统一到这里，减少认知负担与屏幕占用。
  */
 
 interface Engine {
@@ -29,6 +37,20 @@ const ENGINES: Engine[] = [
 
 const STORAGE_KEY = 'tabit:web-search-engine'
 
+/** 前缀解析：把 raw 拆成「模式 + 实际查询词」 */
+type Mode = 'auto' | 'web' | 'local'
+function parseQuery(raw: string): { mode: Mode; q: string } {
+  const trimmed = raw.replace(/^\s+/, '')
+  // 容错：允许 @web、@web<空格>、@web<tab> 等
+  if (/^@web(\s+|$)/i.test(trimmed)) {
+    return { mode: 'web', q: trimmed.replace(/^@web\s*/i, '').trim() }
+  }
+  if (/^@bm(\s+|$)/i.test(trimmed)) {
+    return { mode: 'local', q: trimmed.replace(/^@bm\s*/i, '').trim() }
+  }
+  return { mode: 'auto', q: trimmed.trim() }
+}
+
 function loadEngine(): Engine {
   try {
     const id = localStorage.getItem(STORAGE_KEY)
@@ -40,9 +62,25 @@ function loadEngine(): Engine {
 
 export function WebSearchBox() {
   const [engine, setEngine] = useState<Engine>(() => loadEngine())
-  const [query, setQuery] = useState('')
+  const [raw, setRaw] = useState('')
   const [open, setOpen] = useState(false)
   const wrapRef = useRef<HTMLDivElement | null>(null)
+
+  // 本地搜索：把"实际查询词"同步到 store（@web 模式时清掉，避免主区被误切到搜索视图）
+  const cards = useBookmarkStore((s) => s.cards)
+  const setSearchKeyword = useBookmarkStore((s) => s.setSearchKeyword)
+  const parsed = useMemo(() => parseQuery(raw), [raw])
+
+  useEffect(() => {
+    if (parsed.mode === 'web') {
+      setSearchKeyword('') // 网页模式：主区不要展示本地搜索结果
+    } else {
+      setSearchKeyword(parsed.q)
+    }
+    // 组件卸载时清掉，避免下次 mount 残留
+    return () => setSearchKeyword('')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [parsed.mode, parsed.q])
 
   // 持久化用户选择的引擎
   useEffect(() => {
@@ -63,13 +101,74 @@ export function WebSearchBox() {
     return () => document.removeEventListener('mousedown', onDocClick)
   }, [open])
 
-  const submit = () => {
-    const q = query.trim()
+  /** 找到第一个匹配本地书签（默认模式回车的目标） */
+  const firstLocalMatch = useMemo(() => {
+    if (parsed.mode !== 'auto' || !parsed.q) return null
+    const kw = parsed.q.toLowerCase()
+    return (
+      cards.find(
+        (c) =>
+          c.title.toLowerCase().includes(kw) ||
+          c.url.toLowerCase().includes(kw),
+      ) ?? null
+    )
+  }, [cards, parsed.mode, parsed.q])
+
+  const goWebSearch = (q: string) => {
     if (!q) return
     const url = engine.searchUrl.replace('{q}', encodeURIComponent(q))
     window.open(url, '_blank', 'noopener,noreferrer')
-    setQuery('')
   }
+
+  const submit = () => {
+    const { mode, q } = parsed
+    if (!q) return
+
+    if (mode === 'web') {
+      goWebSearch(q)
+      setRaw('')
+      return
+    }
+    // local / auto：先尝试打开第一个匹配；没有就 fallback 到网页搜索（auto 模式下）
+    if (firstLocalMatch) {
+      window.open(firstLocalMatch.url, '_blank', 'noopener,noreferrer')
+      setRaw('')
+      return
+    }
+    if (mode === 'auto') {
+      goWebSearch(q)
+      setRaw('')
+    }
+    // local 模式没有匹配时不强行跳网页，避免误操作
+  }
+
+  // 视觉上模式标识：默认显示引擎 favicon，@web 模式高亮，@bm 模式显示书签 icon
+  const modeChip = (
+    <span
+      className={cn(
+        'shrink-0 inline-flex items-center gap-1 h-6 px-1.5 rounded text-[10px] font-medium',
+        'transition-colors',
+        parsed.mode === 'web'
+          ? 'bg-brand text-white'
+          : parsed.mode === 'local'
+            ? 'bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300'
+            : 'text-slate-400',
+      )}
+      title={
+        parsed.mode === 'web'
+          ? '网页搜索模式（@web）'
+          : parsed.mode === 'local'
+            ? '仅本地书签（@bm）'
+            : '本地优先；输入 @web 强制走网页搜索'
+      }
+    >
+      {parsed.mode === 'web'
+        ? '网页'
+        : parsed.mode === 'local'
+          ? '书签'
+          : '智能'}
+    </span>
+  )
 
   return (
     <div ref={wrapRef} className="relative flex-1 max-w-xl mx-auto">
@@ -90,54 +189,67 @@ export function WebSearchBox() {
             'text-xs text-slate-600 dark:text-slate-300',
             'hover:bg-slate-100 dark:hover:bg-slate-700/60 transition-colors',
           )}
-          title={`切换搜索引擎（当前：${engine.name}）`}
+          title={`切换网页搜索引擎（当前：${engine.name}）`}
         >
           <img
             src={getFaviconUrl(engine.homepage, 16)}
             alt=""
             className="w-4 h-4 rounded-sm"
-            onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = 'hidden' }}
+            onError={(e) => {
+              ;(e.currentTarget as HTMLImageElement).style.visibility = 'hidden'
+            }}
           />
           <span className="text-[10px] text-slate-400 leading-none">▾</span>
         </button>
 
         <div className="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-1 shrink-0" />
 
+        {modeChip}
+
         <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          value={raw}
+          onChange={(e) => setRaw(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') submit()
+            if (e.key === 'Escape') setRaw('')
           }}
-          placeholder={`使用 ${engine.name} 搜索网页…`}
+          placeholder="搜索书签 / 网页…  输入 @web 强制网页搜索"
           className={cn(
             'flex-1 min-w-0 h-full px-2 text-sm bg-transparent outline-none',
             'placeholder:text-slate-400',
           )}
         />
 
-        {query && (
+        {raw && (
           <button
             type="button"
-            onClick={() => setQuery('')}
+            onClick={() => setRaw('')}
             className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 px-1.5 text-xs h-7 shrink-0"
-            title="清空"
+            title="清空 (Esc)"
           >✕</button>
         )}
 
         <button
           type="button"
           onClick={submit}
-          disabled={!query.trim()}
+          disabled={!parsed.q}
           className={cn(
             'h-7 px-2.5 rounded text-xs font-medium transition-colors shrink-0',
-            query.trim()
+            parsed.q
               ? 'bg-brand text-white hover:bg-brand-600'
               : 'bg-slate-100 text-slate-400 dark:bg-slate-700 dark:text-slate-500 cursor-not-allowed',
           )}
-          title="搜索 (Enter)"
+          title={
+            parsed.mode === 'web'
+              ? `用 ${engine.name} 搜索网页 (Enter)`
+              : firstLocalMatch
+                ? `打开匹配书签：${firstLocalMatch.title}`
+                : `用 ${engine.name} 搜索网页 (Enter)`
+          }
         >
-          搜索
+          {parsed.mode === 'web' || (parsed.mode === 'auto' && !firstLocalMatch)
+            ? '搜网页'
+            : '打开'}
         </button>
       </div>
 
@@ -145,11 +257,14 @@ export function WebSearchBox() {
       {open && (
         <div
           className={cn(
-            'absolute z-20 left-0 mt-1.5 min-w-[180px] py-1 rounded-lg',
+            'absolute z-20 left-0 mt-1.5 min-w-[200px] py-1 rounded-lg',
             'border border-slate-200 dark:border-slate-700',
             'bg-white dark:bg-slate-800 shadow-lg',
           )}
         >
+          <div className="px-3 pt-1.5 pb-1 text-[10px] uppercase tracking-wider text-slate-400">
+            网页搜索引擎
+          </div>
           {ENGINES.map((e) => (
             <button
               key={e.id}
@@ -171,6 +286,9 @@ export function WebSearchBox() {
               {e.id === engine.id && <span className="text-xs">✓</span>}
             </button>
           ))}
+          <div className="mt-1 px-3 pt-1.5 pb-1 border-t border-slate-100 dark:border-slate-700/60 text-[10px] text-slate-400 leading-relaxed">
+            提示：输入 <code className="font-mono text-slate-500">@web 关键字</code> 强制走网页搜索；输入 <code className="font-mono text-slate-500">@bm 关键字</code> 仅查本地书签。
+          </div>
         </div>
       )}
     </div>

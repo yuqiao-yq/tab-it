@@ -88,13 +88,15 @@ export function BookmarkGrid() {
         headerVariant="compact"
       />
 
-      {/* 所有后代分类（递归 DFS）：每个作为独立 section（full header）
-          key 含 activeCategoryId：切换分类时强制 remount，所有子 section 回到"折叠"默认态；
-          同一 active 下用户手动切换的 collapsed 状态保留 */}
+      {/* 所有后代分类（递归 DFS）：每个作为独立 section（full header），
+          标题用相对 active 的路径（不再重复根名），并按层级缩进，
+          层次越深视觉越缩进，避免 "Test / 1 / 11" 这种"被无奈展开的全路径"。
+          key 含 activeCategoryId：切换分类时强制 remount，所有子 section 回到"折叠"默认态。 */}
       {descendants.map((cat) => (
         <CategorySection
           key={`${activeCategoryId}-${cat.id}`}
           category={cat}
+          rootId={activeCategoryId}
           showFolders={false}
           headerVariant="full"
         />
@@ -123,12 +125,18 @@ export function BookmarkGrid() {
 type HeaderVariant = 'full' | 'compact' | 'none'
 interface SectionProps {
   category: Category
+  /**
+   * 当前 active 分类 id，用于把面包屑收敛为相对路径（不再从根开始拼）。
+   * 不传或与 category.id 相同时，按"绝对路径"行为（兼容旧调用）。
+   */
+  rootId?: string | null
   showFolders: boolean
   headerVariant: HeaderVariant
 }
 
 function CategorySection({
   category,
+  rootId,
   showFolders,
   headerVariant,
 }: SectionProps) {
@@ -187,24 +195,42 @@ function CategorySection({
     await addCard({ categoryId: category.id, title: title.trim(), url: url.trim() })
   }
 
-  // 计算相对 active 根的路径，用于 section 标题（如 "工作 / 项目A / 文档"）
-  const breadcrumbPath = useMemo(() => {
-    if (!showFullHeader) return ''
+  // 计算相对 active 根的路径与深度。例：active=Test，cat=Test/1/11 → 路径 "1 / 11"，深度 2。
+  // 这样子 section 不再重复根名（"Test / 1 / 11"），让用户专注于"在当前分类下的相对位置"。
+  const { breadcrumbPath, relativeDepth } = useMemo(() => {
+    if (!showFullHeader) return { breadcrumbPath: '', relativeDepth: 0 }
     const map = new Map(allCategories.map((c) => [c.id, c]))
     const parts: string[] = []
     let cur: Category | undefined = category
+    let depth = 0
     while (cur) {
+      // 遇到 active 根本身就停下，把它作为"基准"，不放进显示路径
+      if (rootId && cur.id === rootId) break
       parts.unshift(cur.name)
+      depth++
       cur = cur.parentId ? map.get(cur.parentId) : undefined
     }
-    return parts.join(' / ')
-  }, [allCategories, category, showFullHeader])
+    // 如果一路追溯都没碰到 rootId（理论上不会发生，因为这些都是 root 的后代），
+    // 回退到完整路径，避免显示空字符串
+    return {
+      breadcrumbPath: parts.length > 0 ? parts.join(' / ') : category.name,
+      relativeDepth: Math.max(1, depth),
+    }
+  }, [allCategories, category, showFullHeader, rootId])
 
   // section 整体为空时（无子文件夹、无书签）也显示出来——保持目录结构可见
   const sectionIsEmpty = subFolders.length === 0 && directCards.length === 0
 
   return (
-    <section>
+    <section
+      // 子 section 按相对深度做左缩进，最多缩 3 层（避免超深嵌套时挤压主区域）
+      // root section（compact）relativeDepth=0，不缩进
+      style={
+        showFullHeader
+          ? { paddingLeft: Math.min(3, relativeDepth) * 16 }
+          : undefined
+      }
+    >
       {showFullHeader && (
         <header className="flex items-center gap-2 mb-3 group/sec">
           <button

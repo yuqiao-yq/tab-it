@@ -12,6 +12,14 @@ import { GradientEditor } from './GradientEditor'
 // docs/USER_GUIDE.md 是用户文档的唯一来源，弹窗内容由它驱动
 // （Vite 的 ?raw 后缀会把文件以纯字符串形式 import 进来）
 import userGuideMd from '../../docs/USER_GUIDE.md?raw'
+// 读 package.json 取版本号在「关于」弹窗里展示，避免硬编码导致信息漂移
+import pkg from '../../package.json'
+
+/**
+ * UI 构建标识：每次 UI 大改时 +1，便于在「关于」里确认页面是否加载到最新代码。
+ * 之前嵌在侧栏底部对普通用户是噪音，现在统一收到「关于」弹窗里。
+ */
+const UI_BUILD_TAG = 'v6-relative-paths'
 
 interface PendingImport {
   data: ExportData
@@ -31,9 +39,10 @@ export function Topbar() {
   const [mode, setMode] = useState<BulkImportMode>('merge')
   const [importing, setImporting] = useState(false)
 
-  // 两类设置弹窗（互斥；从齿轮气泡菜单触发）
+  // 三类设置弹窗（互斥；从齿轮气泡菜单触发）
   const [dataDialogOpen, setDataDialogOpen] = useState(false)
   const [styleDialogOpen, setStyleDialogOpen] = useState(false)
+  const [aboutDialogOpen, setAboutDialogOpen] = useState(false)
   // 帮助文档弹窗（齿轮左侧的「?」按钮触发）
   const [helpDialogOpen, setHelpDialogOpen] = useState(false)
 
@@ -161,6 +170,12 @@ export function Topbar() {
               icon: <PaletteIcon />,
               onSelect: () => setStyleDialogOpen(true),
             },
+            {
+              key: 'about',
+              label: '关于 Tab It',
+              icon: <InfoIcon />,
+              onSelect: () => setAboutDialogOpen(true),
+            },
           ]}
           trigger={(toggle, isOpen) => (
             <button
@@ -205,6 +220,13 @@ export function Topbar() {
             onClose={() => setStyleDialogOpen(false)}
             onUpdate={updateSettings}
           />,
+          document.body,
+        )}
+
+      {/* 关于弹窗：版本号 / build 标识 / 开源链接 */}
+      {aboutDialogOpen &&
+        createPortal(
+          <AboutDialog onClose={() => setAboutDialogOpen(false)} />,
           document.body,
         )}
 
@@ -310,6 +332,77 @@ function DialogShell({
           )}
         </div>
       </div>
+    </div>
+  )
+}
+
+// ─── 关于弹层 ──────────────────────────────────────
+function AboutDialog({ onClose }: { onClose: () => void }) {
+  const repoUrl = 'https://github.com/yuqiao-yq/tab-it'
+  return (
+    <DialogShell
+      title={
+        <span className="flex items-center gap-2">
+          <span className="text-base">ℹ️</span>
+          <span>关于 Tab It</span>
+        </span>
+      }
+      width={440}
+      onClose={onClose}
+    >
+      <div className="space-y-4">
+        <div className="flex items-baseline gap-2">
+          <span className="text-2xl font-bold text-brand">Tab It</span>
+          <span className="text-sm text-slate-500 dark:text-slate-400 tabular-nums">
+            v{pkg.version}
+          </span>
+        </div>
+
+        <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+          替代浏览器新标签页的书签整理工具。所有数据本地存储，开源免费。
+        </p>
+
+        <div className="rounded-md bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-700 px-3 py-2 space-y-1">
+          <InfoRow label="版本" value={`v${pkg.version}`} />
+          <InfoRow label="UI build" value={UI_BUILD_TAG} />
+          <InfoRow
+            label="项目主页"
+            value={
+              <a
+                href={repoUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-brand hover:underline break-all"
+              >
+                {repoUrl.replace('https://', '')}
+              </a>
+            }
+          />
+        </div>
+
+        <p className="text-[11px] text-slate-400 leading-relaxed">
+          反馈与建议欢迎到 GitHub 提 issue。
+        </p>
+      </div>
+    </DialogShell>
+  )
+}
+
+function InfoRow({
+  label,
+  value,
+}: {
+  label: string
+  value: React.ReactNode
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 text-xs">
+      <span className="text-slate-500 dark:text-slate-400 shrink-0">
+        {label}
+      </span>
+      <span className="text-slate-700 dark:text-slate-200 text-right truncate">
+        {value}
+      </span>
     </div>
   )
 }
@@ -995,6 +1088,17 @@ function PaletteIcon() {
       <circle cx="8.5" cy="7.5" r=".5" fill="currentColor" />
       <circle cx="6.5" cy="12.5" r=".5" fill="currentColor" />
       <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z" />
+    </svg>
+  )
+}
+
+/** 圆 + i 字符；用于齿轮菜单里「关于」项 */
+function InfoIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <circle cx="12" cy="12" r="9" />
+      <line x1="12" y1="11" x2="12" y2="17" />
+      <line x1="12" y1="7.5" x2="12" y2="7.51" />
     </svg>
   )
 }

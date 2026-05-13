@@ -2,8 +2,9 @@ import { useEffect, useMemo, useState } from 'react'
 import { browser } from 'wxt/browser'
 import { useBookmarkStore } from '../../src/stores/useBookmarkStore'
 import type { Category } from '../../src/types/bookmark'
-import { getFaviconUrl, getHostname } from '../../src/utils/favicon'
+import { getHostname } from '../../src/utils/favicon'
 import { cn } from '../../src/utils/cn'
+import { FaviconImg } from '../../src/components/FaviconImg'
 
 /**
  * 浏览器工具栏图标的 Popup。
@@ -196,14 +197,11 @@ export default function Popup() {
                 'border border-slate-200 dark:border-slate-700',
               )}
             >
-              <img
-                src={getFaviconUrl(tabInfo.url, 16)}
-                alt=""
+              <FaviconImg
+                url={tabInfo.url}
+                size={16}
                 className="w-4 h-4 rounded-sm shrink-0"
-                onError={(e) => {
-                  ;(e.currentTarget as HTMLImageElement).style.visibility =
-                    'hidden'
-                }}
+                fallbackClassName="w-4 h-4 rounded-sm text-[10px] shrink-0"
               />
               <span
                 className="text-[11px] text-slate-500 dark:text-slate-400 truncate"

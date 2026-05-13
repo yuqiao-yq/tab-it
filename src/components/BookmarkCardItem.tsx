@@ -2,12 +2,13 @@ import { useEffect, useRef, useState } from 'react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import type { BookmarkCard } from '../types/bookmark'
-import { getFaviconUrl, getHostname } from '../utils/favicon'
+import { getHostname } from '../utils/favicon'
 import { useBookmarkStore } from '../stores/useBookmarkStore'
 import { cn } from '../utils/cn'
 import { IconPicker } from './IconPicker'
 import { isImageIcon } from '../utils/icon'
 import { CardMenu, MenuIcons, type CardMenuItem } from './CardMenu'
+import { FaviconImg } from './FaviconImg'
 
 interface Props {
   card: BookmarkCard
@@ -380,15 +381,26 @@ function CardIconView({
       </span>
     )
   }
-  const src = icon || getFaviconUrl(fallbackUrl)
+  // 用户上传了图片图标 → 直接渲染（失败时 hidden 兜底，与之前行为一致）
+  if (icon) {
+    return (
+      <img
+        src={icon}
+        alt=""
+        className="w-7 h-7 rounded-sm object-contain"
+        onError={(e) => {
+          ;(e.currentTarget as HTMLImageElement).style.visibility = 'hidden'
+        }}
+      />
+    )
+  }
+  // 没设置 icon → 走 favicon；失败时显示域名首字母占位块（FaviconImg 内置）
   return (
-    <img
-      src={src}
-      alt=""
+    <FaviconImg
+      url={fallbackUrl}
+      size={28}
       className="w-7 h-7 rounded-sm object-contain"
-      onError={(e) => {
-        ;(e.currentTarget as HTMLImageElement).style.visibility = 'hidden'
-      }}
+      fallbackClassName="w-7 h-7 rounded-sm text-xs"
     />
   )
 }

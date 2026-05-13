@@ -1,8 +1,9 @@
 import { useBookmarkStore } from '../stores/useBookmarkStore'
 import type { BrowserHistoryItem } from '../stores/useBookmarkStore'
-import { getFaviconUrl, getHostname } from '../utils/favicon'
+import { getHostname } from '../utils/favicon'
 import { cn } from '../utils/cn'
 import { CardMenu, MenuIcons, type CardMenuItem } from './CardMenu'
+import { FaviconImg } from './FaviconImg'
 
 interface Props {
   item: BrowserHistoryItem
@@ -85,13 +86,11 @@ export function HistoryCardItem({ item }: Props) {
             'bg-slate-100 dark:bg-slate-700 relative',
           )}
         >
-          <img
-            src={getFaviconUrl(item.url)}
-            alt=""
+          <FaviconImg
+            url={item.url}
+            size={28}
             className="w-7 h-7 rounded-sm object-contain"
-            onError={(e) => {
-              ;(e.currentTarget as HTMLImageElement).style.visibility = 'hidden'
-            }}
+            fallbackClassName="w-7 h-7 rounded-sm text-xs"
           />
           {/* 右下角小标记：表明这是历史项 */}
           <span
