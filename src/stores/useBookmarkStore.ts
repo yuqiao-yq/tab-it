@@ -59,7 +59,16 @@ interface BookmarkState {
 
   // ----- actions -----
   init: () => Promise<void>
-  importFromBrowser: () => Promise<void>
+  /**
+   * 从浏览器原生书签批量导入（合并模式）。
+   * - 返回新增统计供调用方做 toast 反馈
+   * - 失败时抛出原始 Error，由调用方捕获并提示
+   */
+  importFromBrowser: () => Promise<{
+    categoriesAdded: number
+    cardsAdded: number
+    cardsSkipped: number
+  }>
   setActiveCategory: (id: string | null) => void
   setSearchKeyword: (kw: string) => void
 
@@ -245,6 +254,11 @@ export const useBookmarkStore = create<BookmarkState>((set, get) => ({
       if (cardsToAdd.length > 0) await repo.saveCards(cardsToAdd)
 
       await get().init()
+      return {
+        categoriesAdded: catsToCreate.length,
+        cardsAdded: cardsToAdd.length,
+        cardsSkipped: importedCards.length - cardsToAdd.length,
+      }
     } finally {
       set({ loading: false })
     }

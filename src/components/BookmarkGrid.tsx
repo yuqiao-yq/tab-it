@@ -286,9 +286,10 @@ function CategorySection({
             当前分类
           </span>
           <span className="text-xs text-slate-400 tabular-nums">
-            {subFolders.length > 0 && `${subFolders.length} 文件夹`}
-            {subFolders.length > 0 && directCards.length > 0 && ' · '}
+            {/* 与下方主区一致：书签在前，文件夹在后 */}
             {directCards.length > 0 && `${directCards.length} 书签`}
+            {directCards.length > 0 && subFolders.length > 0 && ' · '}
+            {subFolders.length > 0 && `${subFolders.length} 文件夹`}
           </span>
           <div className="flex-1 border-t border-dashed border-slate-200 dark:border-slate-700 ml-2" />
         </header>
@@ -296,25 +297,17 @@ function CategorySection({
 
       {!collapsed && (
         <>
-          {/* 直接子文件夹（仅根 section 显示） */}
-          {subFolders.length > 0 && (
-            <div className="mb-4">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">
-                文件夹
-              </h3>
-              <div className={GRID_COLS}>
-                {subFolders.map((cat) => (
-                  <FolderCard key={cat.id} category={cat} />
-                ))}
-              </div>
-            </div>
-          )}
+          {/* 直接书签（支持拖拽排序）—— 优先于文件夹展示
+              产品诉求：用户更常打开常用书签，文件夹是导航辅助；
+              所以"书签 → 文件夹"的视觉顺序更符合使用频次
 
-          {/* 直接书签（支持拖拽排序）：根 section（非 full header）始终显示，方便随时 +；
-              子 section（full header）只有有书签时显示，避免视觉空洞 */}
+              - 根 section（非 full header）始终显示该块（哪怕 0 书签也保留 + 按钮，方便随时新建）
+              - 子 section（full header）只有有书签时显示，避免视觉空洞 */}
           {(directCards.length > 0 || !showFullHeader) && (
-            <div>
-              {showFolders && subFolders.length > 0 && (
+            <div className={subFolders.length > 0 ? 'mb-4' : ''}>
+              {/* 仅当下面还有文件夹时给书签块加标题，做视觉分隔；
+                  纯书签场景去掉标题更清爽 */}
+              {subFolders.length > 0 && (
                 <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">
                   书签
                 </h3>
@@ -345,6 +338,24 @@ function CategorySection({
                   </div>
                 </SortableContext>
               </DndContext>
+            </div>
+          )}
+
+          {/* 直接子文件夹（仅根 section 显示）—— 放在书签下方 */}
+          {subFolders.length > 0 && (
+            <div>
+              {/* 仅当上面有书签时给文件夹加标题，做视觉分隔；
+                  纯文件夹场景去掉标题更清爽 */}
+              {directCards.length > 0 && (
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">
+                  文件夹
+                </h3>
+              )}
+              <div className={GRID_COLS}>
+                {subFolders.map((cat) => (
+                  <FolderCard key={cat.id} category={cat} />
+                ))}
+              </div>
             </div>
           )}
 

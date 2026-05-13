@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useBookmarkStore } from '../stores/useBookmarkStore'
+import { toast } from '../stores/useToastStore'
 import type { BrowserHistoryItem } from '../stores/useBookmarkStore'
 import type { BookmarkCard } from '../types/bookmark'
 import { BookmarkCardItem } from './BookmarkCardItem'
@@ -94,7 +95,7 @@ export function RecentSection() {
     if (next === null) return
     const n = parseInt(next.trim(), 10)
     if (!Number.isFinite(n) || n <= 0) {
-      window.alert('请输入大于 0 的整数')
+      toast.warning('数值不合法', '请输入大于 0 的整数')
       return
     }
     await setRecentLimit(n)

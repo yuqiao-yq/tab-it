@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useBookmarkStore } from '../stores/useBookmarkStore'
+import { toast } from '../stores/useToastStore'
 import { getRepository } from '../repositories'
 import type { ExportData, UserSettings } from '../types/bookmark'
 import type { BulkImportMode } from '../repositories/types'
@@ -47,16 +48,26 @@ export function Topbar() {
   const [helpDialogOpen, setHelpDialogOpen] = useState(false)
 
   const handleExport = async () => {
-    const data = await getRepository().bulkExport()
-    const blob = new Blob([JSON.stringify(data, null, 2)], {
-      type: 'application/json',
-    })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `tab-it-export-${new Date().toISOString().slice(0, 10)}.json`
-    a.click()
-    URL.revokeObjectURL(url)
+    try {
+      const data = await getRepository().bulkExport()
+      const blob = new Blob([JSON.stringify(data, null, 2)], {
+        type: 'application/json',
+      })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `tab-it-export-${new Date().toISOString().slice(0, 10)}.json`
+      a.click()
+      URL.revokeObjectURL(url)
+      const cnt = (data.categories?.length ?? 0) + (data.cards?.length ?? 0)
+      toast.success(
+        '已导出',
+        `文件已开始下载（${data.categories?.length ?? 0} 分类 · ${data.cards?.length ?? 0} 书签，共 ${cnt} 项）`,
+      )
+    } catch (err) {
+      console.error(err)
+      toast.error('导出失败', err instanceof Error ? err.message : '未知错误')
+    }
   }
 
   const handleImport = () => {
@@ -71,13 +82,13 @@ export function Topbar() {
       try {
         data = JSON.parse(text)
       } catch {
-        window.alert('导入失败：文件格式错误')
+        toast.error('导入失败', '文件格式错误，请确认是合法的 JSON')
         return
       }
       const cats = Array.isArray(data?.categories) ? data.categories : []
       const cards = Array.isArray(data?.cards) ? data.cards : []
       if (cats.length === 0 && cards.length === 0) {
-        window.alert('导入失败：未识别到分类或书签数据')
+        toast.error('导入失败', '未识别到分类或书签数据')
         return
       }
       setMode('merge') // 每次都默认安全的合并
@@ -99,23 +110,66 @@ export function Topbar() {
       await init()
       setPending(null)
       if (result.mode === 'replace') {
-        window.alert(
-          `已替换全部数据：${result.categoriesAdded} 个分类、${result.cardsAdded} 个书签`,
+        toast.success(
+          '已替换全部数据',
+          `${result.categoriesAdded} 分类 · ${result.cardsAdded} 书签`,
         )
       } else {
-        window.alert(
-          `合并完成：\n` +
-            `  分类  新增 ${result.categoriesAdded} / 更新 ${result.categoriesUpdated}\n` +
-            `  书签  新增 ${result.cardsAdded} / 更新 ${result.cardsUpdated}`,
+        toast.success(
+          '合并完成',
+          `分类 +${result.categoriesAdded} / 更新 ${result.categoriesUpdated}\n` +
+            `书签 +${result.cardsAdded} / 更新 ${result.cardsUpdated}`,
         )
       }
     } catch (err) {
       console.error(err)
-      window.alert(
-        '导入失败：' + (err instanceof Error ? err.message : '未知错误'),
+      toast.error(
+        '导入失败',
+        err instanceof Error ? err.message : '未知错误',
       )
     } finally {
       setImporting(false)
+    }
+  }
+
+  /**
+   * 浏览器导入：包一层 toast 反馈。
+   * - 成功：显示新增 / 跳过统计
+   * - 失败：显示错误消息
+   */
+  const handleImportFromBrowser = async () => {
+    try {
+      const result = await importFromBrowser()
+      const total =
+        result.categoriesAdded + result.cardsAdded + result.cardsSkipped
+      if (total === 0) {
+        toast.info(
+          '未发现新书签',
+          '当前浏览器书签都已存在于 Tab It 中，无新增',
+        )
+        return
+      }
+      if (result.categoriesAdded === 0 && result.cardsAdded === 0) {
+        toast.info(
+          '没有新增内容',
+          `检测到 ${result.cardsSkipped} 个书签均已存在（按分类 + URL 去重）`,
+        )
+        return
+      }
+      const dedupHint =
+        result.cardsSkipped > 0
+          ? `\n（已跳过重复 ${result.cardsSkipped} 个）`
+          : ''
+      toast.success(
+        '已从浏览器导入',
+        `新增 ${result.categoriesAdded} 分类、${result.cardsAdded} 书签${dedupHint}`,
+      )
+    } catch (err) {
+      console.error(err)
+      toast.error(
+        '从浏览器导入失败',
+        err instanceof Error ? err.message : '未知错误（请确认已授权 bookmarks 权限）',
+      )
     }
   }
 
@@ -205,7 +259,7 @@ export function Topbar() {
         createPortal(
           <DataDialog
             onClose={() => setDataDialogOpen(false)}
-            onImportFromBrowser={runAndCloseData(importFromBrowser)}
+            onImportFromBrowser={runAndCloseData(handleImportFromBrowser)}
             onImportJson={runAndCloseData(handleImport)}
             onExportJson={runAndCloseData(handleExport)}
           />,
@@ -605,7 +659,7 @@ function StyleDialog({
       if (!file) return
       // 限制 2MB，避免 chrome.storage.local 超限
       if (file.size > 2 * 1024 * 1024) {
-        window.alert('图片过大，请选择 2MB 以内的图片')
+        toast.error('图片过大', '请选择 2MB 以内的图片')
         return
       }
       const reader = new FileReader()

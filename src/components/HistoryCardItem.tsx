@@ -1,5 +1,6 @@
 import { useBookmarkStore } from '../stores/useBookmarkStore'
 import type { BrowserHistoryItem } from '../stores/useBookmarkStore'
+import { toast } from '../stores/useToastStore'
 import { getHostname } from '../utils/favicon'
 import { cn } from '../utils/cn'
 import { CardMenu, MenuIcons, type CardMenuItem } from './CardMenu'
@@ -33,13 +34,16 @@ export function HistoryCardItem({ item }: Props) {
 
   const handleAddToBookmarks = async () => {
     if (!activeCategoryId) {
-      window.alert('请先在左侧选择一个分类，再把历史项加入书签')
+      toast.warning('请先选择分类', '在左侧选择一个分类后再把历史项加入书签')
       return
     }
-    const card = await addCardFromHistory({ url: item.url, title: item.title })
-    if (card) {
-      // 简单的视觉反馈：用 alert 不太优雅但 V1 够用；后续可换 toast
-      // 暂时省略提示，避免打断用户
+    try {
+      const card = await addCardFromHistory({ url: item.url, title: item.title })
+      if (card) {
+        toast.success('已加入书签', `已添加到当前分类：${item.title}`)
+      }
+    } catch (err) {
+      toast.error('加入失败', err instanceof Error ? err.message : '未知错误')
     }
   }
 

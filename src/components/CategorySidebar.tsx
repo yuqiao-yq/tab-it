@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   DndContext,
   PointerSensor,
@@ -183,6 +183,12 @@ export function CategorySidebar() {
   const enterSelectMode = () => {
     setSelectMode(true)
     setSelectedIds(new Set())
+    // 进入选择模式时自动展开所有有子分类的节点：
+    // 否则用户想批量勾选子级还要先一个个 ▶ 展开，体验割裂
+    const parentIds = categories
+      .filter((c) => categories.some((x) => x.parentId === c.id))
+      .map((c) => c.id)
+    if (parentIds.length > 0) setExpanded(new Set(parentIds))
   }
   const exitSelectMode = () => {
     setSelectMode(false)
@@ -196,9 +202,10 @@ export function CategorySidebar() {
     })
   const toggleSelectAll = () =>
     setSelectedIds(
-      selectedIds.size === topLevel.length
+      // 全选 = 所有分类（含所有层级），不再仅限顶层
+      selectedIds.size === categories.length
         ? new Set()
-        : new Set(topLevel.map((c) => c.id)),
+        : new Set(categories.map((c) => c.id)),
     )
   const handleBatchDelete = async () => {
     if (selectedIds.size === 0) return
@@ -214,7 +221,19 @@ export function CategorySidebar() {
     exitSelectMode()
   }
 
-  const allSelected = selectedIds.size === topLevel.length && topLevel.length > 0
+  const allSelected =
+    selectedIds.size === categories.length && categories.length > 0
+
+  /**
+   * 「有效选中」集合：selectedIds 展开到所有后代。
+   * - 勾选了父 P → P 的所有后代都属于「选中作用域」（删除时一起被删）
+   * - 用于子节点行渲染时显示"会被父一起删除"的浅色底 + 半选 checkbox，
+   *   避免用户疑惑「为什么我没勾它，删了它的父它也没了」
+   */
+  const effectiveSelectedIds = useMemo(() => {
+    if (!selectMode || selectedIds.size === 0) return new Set<string>()
+    return collectDescendantIds(Array.from(selectedIds), categories)
+  }, [selectMode, selectedIds, categories])
 
   // 是否存在任何"有子分类"的分类（用于显示/禁用一键展开按钮）
   const allParentIds = categories
@@ -347,6 +366,7 @@ export function CategorySidebar() {
             activeId={activeId}
             selectMode={selectMode}
             selectedIds={selectedIds}
+            effectiveSelectedIds={effectiveSelectedIds}
             editingId={editingId}
             editingName={editingName}
             expanded={expanded}
@@ -639,6 +659,8 @@ interface RowProps {
   activeId: string | null
   selectMode: boolean
   selectedIds: Set<string>
+  /** 选中作用域（含所有后代）；用于子节点显示「会被父一起删除」的视觉提示 */
+  effectiveSelectedIds: Set<string>
   editingId: string | null
   editingName: string
   expanded: Set<string>
@@ -668,6 +690,7 @@ function SortableSidebarRow(props: RowProps) {
     activeId,
     selectMode,
     selectedIds,
+    effectiveSelectedIds,
     editingId,
     editingName,
     expanded,
@@ -690,7 +713,8 @@ function SortableSidebarRow(props: RowProps) {
   const isExpanded = expanded.has(cat.id)
   const active = activeId === cat.id
   const isSelected = selectedIds.has(cat.id)
-  const checkable = !cat.parentId
+  // 「祖先被选中、自己未直接勾选」 → 显示"将被一起删除"的浅色底 + 半选 checkbox
+  const isInScope = effectiveSelectedIds.has(cat.id) && !isSelected
 
   const {
     attributes,
@@ -728,11 +752,13 @@ function SortableSidebarRow(props: RowProps) {
           'group flex items-center gap-1 pr-2 py-1.5 rounded-lg transition-colors',
           disabled ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing',
           selectMode
-            ? checkable
-              ? isSelected
-                ? 'bg-brand/10 dark:bg-brand/20'
+            ? isSelected
+              // 自己被勾选：实底 brand
+              ? 'bg-brand/10 dark:bg-brand/20'
+              : isInScope
+                // 祖先被勾选：浅蓝底，提示"会被父一起删除"
+                ? 'bg-brand/[0.04] dark:bg-brand/10'
                 : 'hover:bg-slate-100 dark:hover:bg-slate-800'
-              : 'opacity-50 cursor-default'
             : active
               ? 'bg-brand text-white'
               : 'hover:bg-slate-100 dark:hover:bg-slate-800',
@@ -743,7 +769,9 @@ function SortableSidebarRow(props: RowProps) {
         style={{ paddingLeft: 4 + depth * 12 }}
         onClick={() => {
           if (selectMode) {
-            if (checkable) onToggleSelect(cat.id)
+            // 任意层级都可勾选；祖先已选时点子级会"显式追加"该子级到 selectedIds，
+            // 删除结果一致（去重 + 级联），但语义上让用户能精确反勾后再操作
+            onToggleSelect(cat.id)
             return
           }
           onActivate(cat.id)
@@ -775,16 +803,26 @@ function SortableSidebarRow(props: RowProps) {
           <span className="w-5 shrink-0" />
         )}
 
-        {selectMode && checkable ? (
+        {selectMode ? (
           <span
             className={cn(
               'w-4 h-4 rounded border flex items-center justify-center text-[10px] shrink-0',
               isSelected
                 ? 'bg-brand border-brand text-white'
-                : 'border-slate-300 dark:border-slate-600',
+                : isInScope
+                  // 祖先已选 → 半选态：浅 brand 底 + 短横，明示"会被一起删除"
+                  ? 'bg-brand/30 border-brand/40 text-white'
+                  : 'border-slate-300 dark:border-slate-600',
             )}
+            title={
+              isSelected
+                ? '已选中'
+                : isInScope
+                  ? '祖先已选中，会被一起删除（点击可单独显式勾选）'
+                  : '未选中'
+            }
           >
-            {isSelected && '✓'}
+            {isSelected ? '✓' : isInScope ? '–' : ''}
           </span>
         ) : (
           <span
@@ -905,8 +943,8 @@ function SortableSidebarRow(props: RowProps) {
         )}
       </div>
 
-      {/* 子节点：选择模式下不展开，避免操作语义混乱 */}
-      {hasChildren && isExpanded && !selectMode && (
+      {/* 子节点：选择模式下也照常展开，让用户能批量勾选任意层级 */}
+      {hasChildren && isExpanded && (
         <div>{renderChildren()}</div>
       )}
     </div>

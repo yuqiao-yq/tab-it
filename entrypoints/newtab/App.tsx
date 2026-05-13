@@ -4,6 +4,8 @@ import { CategorySidebar } from '../../src/components/CategorySidebar'
 import { BookmarkGrid } from '../../src/components/BookmarkGrid'
 import { Breadcrumb } from '../../src/components/Breadcrumb'
 import { Topbar } from '../../src/components/Topbar'
+import { ToastContainer } from '../../src/components/ToastContainer'
+import { toast } from '../../src/stores/useToastStore'
 
 export default function App() {
   const init = useBookmarkStore((s) => s.init)
@@ -93,6 +95,7 @@ export default function App() {
 
   return (
     <div className="h-full w-full flex flex-col">
+      <ToastContainer />
       <Topbar />
       <div className="flex-1 flex min-h-0">
         <CategorySidebar />
@@ -102,7 +105,38 @@ export default function App() {
           ) : topLevelCount === 0 ? (
             <EmptyState
               loading={loading}
-              onImport={importFromBrowser}
+              onImport={async () => {
+                // 复用 Topbar 同款 toast 反馈，避免空状态首次导入静悄悄
+                try {
+                  const r = await importFromBrowser()
+                  const total = r.categoriesAdded + r.cardsAdded + r.cardsSkipped
+                  if (total === 0) {
+                    toast.info('未发现书签', '当前浏览器中没有可以导入的书签')
+                  } else if (r.categoriesAdded === 0 && r.cardsAdded === 0) {
+                    toast.info(
+                      '没有新增内容',
+                      `检测到 ${r.cardsSkipped} 个书签均已存在`,
+                    )
+                  } else {
+                    const dedup =
+                      r.cardsSkipped > 0
+                        ? `\n（已跳过重复 ${r.cardsSkipped} 个）`
+                        : ''
+                    toast.success(
+                      '已从浏览器导入',
+                      `新增 ${r.categoriesAdded} 分类、${r.cardsAdded} 书签${dedup}`,
+                    )
+                  }
+                } catch (err) {
+                  console.error(err)
+                  toast.error(
+                    '从浏览器导入失败',
+                    err instanceof Error
+                      ? err.message
+                      : '未知错误（请确认已授权 bookmarks 权限）',
+                  )
+                }
+              }}
               onCreate={() => addCategory('我的收藏', '⭐')}
             />
           ) : !activeCategoryId ? (
@@ -127,7 +161,7 @@ function EmptyState({
   onCreate,
 }: {
   loading: boolean
-  onImport: () => void
+  onImport: () => void | Promise<void>
   onCreate: () => void
 }) {
   return (
