@@ -196,10 +196,10 @@ export function AIPanel() {
 
 // ─── Tab 内容路由 ─────────────────────────────────────
 
-function TabContent({ type }: { type: AITabType; tabId: string }) {
+function TabContent({ type, tabId }: { type: AITabType; tabId: string }) {
   switch (type) {
     case 'chat':
-      return <ChatTab />
+      return <ChatTab tabId={tabId} />
     case 'organize':
       return <OrganizeTab />
     case 'labels':
