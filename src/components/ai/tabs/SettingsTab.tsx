@@ -202,7 +202,8 @@ function ProviderRow({ config }: { config: AIProviderConfig }) {
       if (r.ok) {
         toast.success('连接正常', r.message)
       } else {
-        toast.error('连接失败', r.message)
+        // 失败提示可能很长（chrome://flags 步骤等），延长展示时间到 30s 让用户看完
+        toast.error('连接失败', r.message, 30_000)
       }
     } finally {
       setTesting(false)
