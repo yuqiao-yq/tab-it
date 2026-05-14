@@ -70,9 +70,9 @@
 
 ---
 
-## 4. 阶段一：V1.0 AI MVP（3-4 周）
+## ✅ 4. 阶段一：V1.0 AI MVP（3-4 周）
 
-### 任务 4.0 浮窗壳子（FAB + Floating Panel + Tab）⭐ 前置
+### ✅ 任务 4.0 浮窗壳子（FAB + Floating Panel + Tab）⭐ 前置
 
 **优先级**：P0（所有 AI 功能的前置依赖）  ·  **工期**：4-5 天  ·  **依赖**：无
 
@@ -189,7 +189,7 @@ src/components/ai/
 
 ---
 
-### 任务 4.1 第三方 API 入口（设置 Tab）
+### ✅ 任务 4.1 第三方 API 入口（设置 Tab）
 
 **优先级**：P0  ·  **工期**：3-4 天  ·  **依赖**：4.0
 
@@ -237,7 +237,7 @@ src/components/ai/tabs/
 
 ---
 
-### 任务 4.2 AI 整理书签助手（整理 Tab）⭐ 核心
+### ✅ 任务 4.2 AI 整理书签助手（整理 Tab）⭐ 核心
 
 **优先级**：P0  ·  **工期**：5-7 天  ·  **依赖**：4.0 + 4.1
 
@@ -327,7 +327,7 @@ src/components/ai/
 
 ---
 
-### 任务 4.3 AI 添加书签辅助（popup）
+### ✅ 任务 4.3 AI 添加书签辅助（popup）
 
 **优先级**：P1  ·  **工期**：1-2 天  ·  **依赖**：4.1
 
@@ -340,19 +340,19 @@ src/components/ai/
 > - 推荐的 tags
 
 #### 验收标准
-- [ ] popup 「添加当前页面」表单内增加 ✨「AI 建议」按钮
-- [ ] 点击后调一次 LLM，自动填入 suggestedCategory / description / tags
-- [ ] 用户可修改后再保存
-- [ ] AI 未启用时按钮隐藏
+- [x] popup 「添加当前页面」表单内增加 ✨「AI 建议」按钮
+- [x] 点击后调一次 LLM，自动填入 suggestedCategory / description / tags
+- [x] 用户可修改后再保存
+- [x] AI 未启用时按钮隐藏
 
 #### Checklist
-- [ ] suggester service（单条调用）
-- [ ] popup UI：✨ 按钮 + loading 态 + 错误重试
-- [ ] 自动填充逻辑（不覆盖用户已修改的字段）
+- [x] suggester service（单条调用）
+- [x] popup UI：✨ 按钮 + loading 态 + 错误重试
+- [x] 自动填充逻辑（不覆盖用户已修改的字段）
 
 ---
 
-### 任务 4.4 自动打标签 + Tag 系统（标签 Tab）
+### ✅ 任务 4.4 自动打标签 + Tag 系统（标签 Tab）
 
 **优先级**：P1  ·  **工期**：3-4 天  ·  **依赖**：4.0 + 4.1
 
@@ -867,11 +867,11 @@ export const usageTracker = {
 
 ## 11. 进度追踪 Checklist
 
-### 阶段 V1.0
+### ✅ 阶段 V1.0
 - [x] 4.0 浮窗壳子（FAB + Floating Panel + Tab）⭐ 前置
 - [x] 4.1 第三方 API 入口（设置 Tab）
 - [x] 4.2 AI 整理书签助手（整理 Tab）
-- [ ] 4.3 AI 添加书签辅助（popup）
+- [x] 4.3 AI 添加书签辅助（popup）
 - [x] 4.4 自动打标签 + Tag 系统（标签 Tab）
 
 ### 阶段 V1.5

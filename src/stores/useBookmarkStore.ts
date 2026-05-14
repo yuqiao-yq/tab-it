@@ -100,6 +100,12 @@ interface BookmarkState {
     categoryId: string
     title: string
     url: string
+    /** 可选：备注（AI 建议 / popup 表单都用得到） */
+    description?: string
+    /** 可选：初始 tags（AI 建议时一次性写入） */
+    tags?: string[]
+    /** 可选：自定义图标（emoji / image url），缺省走 favicon */
+    icon?: string
   }) => Promise<BookmarkCard>
   updateCard: (id: string, patch: Partial<BookmarkCard>) => Promise<void>
   removeCard: (id: string) => Promise<void>
@@ -451,15 +457,24 @@ export const useBookmarkStore = create<BookmarkState>((set, get) => ({
     })
   },
 
-  async addCard({ categoryId, title, url }) {
+  async addCard({ categoryId, title, url, description, tags, icon }) {
     const now = Date.now()
     const order = get().cards.filter((c) => c.categoryId === categoryId).length
+    // tags 经过 normalizeTags 标准化，避免脏数据进库
+    const cleanTags = tags ? normalizeTags(tags) : undefined
+    const cleanDesc =
+      typeof description === 'string' && description.trim().length > 0
+        ? description.trim()
+        : undefined
     const card: BookmarkCard = {
       id: uuid(),
       categoryId,
       title,
       url,
       order,
+      description: cleanDesc,
+      tags: cleanTags && cleanTags.length > 0 ? cleanTags : undefined,
+      icon: icon || undefined,
       createdAt: now,
       updatedAt: now,
     }
