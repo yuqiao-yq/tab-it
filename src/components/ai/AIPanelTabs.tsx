@@ -1,7 +1,8 @@
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { cn } from '../../utils/cn'
 import { useAIPanelStore } from '../../ai/panel/usePanelStore'
 import type { AITabType } from '../../ai/types'
-import { CardMenu } from '../CardMenu'
 
 const TAB_ICON: Record<AITabType, string> = {
   chat: '💬',
@@ -10,12 +11,23 @@ const TAB_ICON: Record<AITabType, string> = {
   settings: '⚙',
 }
 
+const TAB_LABELS: Record<AITabType, string> = {
+  chat: '💬 新对话',
+  organize: '🗂 整理书签',
+  labels: '🏷 自动标签',
+  settings: '⚙ AI 设置',
+}
+
 /**
  * 浮窗内的 Tab 切换条。
  * - 横向滚动避免 tab 多了挤爆
  * - 「+」按钮：弹出菜单选择新 tab 类型
  * - 单个 tab：点击切换；右侧 × 关闭
  * - 持久化：tabs 数组在 store 中已被持久化，刷新后恢复
+ *
+ * 实现注意：
+ *  + 按钮的下拉菜单不复用 CardMenu，而是直接用内联 useState + portal，
+ *  避免 CardMenu 的事件链 / z-index 体系在浮窗内出意外。
  */
 export function AIPanelTabs() {
   const tabs = useAIPanelStore((s) => s.tabs)
@@ -73,48 +85,152 @@ export function AIPanelTabs() {
         )
       })}
 
-      {/* 新建 tab 菜单 */}
-      <CardMenu
-        ariaLabel="新建标签"
-        align="left"
-        menuWidth={140}
-        menuZIndex={10200}
-        items={(['chat', 'organize', 'labels', 'settings'] as AITabType[]).map(
-          (type) => ({
-            key: type,
-            label: TAB_LABELS[type],
-            icon: <span className="text-sm leading-none">{TAB_ICON[type]}</span>,
-            onSelect: () => addTab(type),
-          }),
-        )}
-        trigger={(toggle) => (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation()
-              toggle()
-            }}
-            onPointerDown={(e) => e.stopPropagation()}
-            className={cn(
-              'w-6 h-6 inline-flex items-center justify-center rounded shrink-0',
-              'text-slate-400 hover:text-brand',
-              'hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors',
-              'text-base leading-none',
-            )}
-            title="新建标签"
-            aria-label="新建标签"
-          >
-            +
-          </button>
-        )}
-      />
+      {/* 新建 tab 菜单（自管理 popover） */}
+      <NewTabMenu onPick={(type) => addTab(type)} />
     </div>
   )
 }
 
-const TAB_LABELS: Record<AITabType, string> = {
-  chat: '💬 新对话',
-  organize: '🗂 整理书签',
-  labels: '🏷 自动标签',
-  settings: '⚙ AI 设置',
+/* ─────────────────────────────────────────────────────────────
+ * NewTabMenu：一个简化的内联下拉菜单
+ *
+ * - 触发按钮：右下角 + 图标
+ * - 点击 → 切换 open
+ * - open 后用 portal 把菜单渲染到 body 上，z-index = 10200（高于浮窗 10100）
+ * - 菜单位置基于 + 按钮 boundingRect 实时算
+ * - 点击菜单外部 / Esc → 关闭
+ * - 点击菜单项 → addTab + 关闭
+ * ───────────────────────────────────────────────────────────── */
+
+function NewTabMenu({ onPick }: { onPick: (type: AITabType) => void }) {
+  const [open, setOpen] = useState(false)
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
+  const btnRef = useRef<HTMLButtonElement | null>(null)
+  const menuRef = useRef<HTMLDivElement | null>(null)
+
+  // 计算菜单位置（基于按钮坐标）
+  useLayoutEffect(() => {
+    if (!open) return
+    const update = () => {
+      const btn = btnRef.current
+      if (!btn) return
+      const rect = btn.getBoundingClientRect()
+      const menuWidth = 160
+      const vw = window.innerWidth
+      const vh = window.innerHeight
+      // 默认菜单在按钮下方左对齐；如果会超出右边缘，靠右对齐
+      let left = rect.left
+      if (left + menuWidth > vw - 8) left = vw - menuWidth - 8
+      if (left < 8) left = 8
+      // 默认下方；下方放不下时往上展开
+      const estHeight = 4 * 32 + 8
+      let top = rect.bottom + 4
+      if (top + estHeight > vh - 8) {
+        top = Math.max(8, rect.top - estHeight - 4)
+      }
+      setPos({ top, left })
+    }
+    update()
+    window.addEventListener('scroll', update, true)
+    window.addEventListener('resize', update)
+    return () => {
+      window.removeEventListener('scroll', update, true)
+      window.removeEventListener('resize', update)
+    }
+  }, [open])
+
+  // 点外部关闭 + Esc
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node
+      if (btnRef.current?.contains(t)) return
+      if (menuRef.current?.contains(t)) return
+      setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation()
+          setOpen((v) => !v)
+        }}
+        className={cn(
+          'w-6 h-6 inline-flex items-center justify-center rounded shrink-0',
+          'text-slate-400 hover:text-brand',
+          'hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors',
+          'text-base leading-none',
+          open && 'text-brand bg-brand/10',
+        )}
+        title="新建标签"
+        aria-label="新建标签"
+        aria-haspopup="menu"
+        aria-expanded={open}
+      >
+        +
+      </button>
+
+      {open &&
+        pos &&
+        createPortal(
+          <div
+            ref={menuRef}
+            role="menu"
+            style={{
+              position: 'fixed',
+              top: pos.top,
+              left: pos.left,
+              width: 160,
+              zIndex: 10200,
+            }}
+            className={cn(
+              'py-1 rounded-md shadow-lg',
+              'bg-white dark:bg-slate-800',
+              'border border-slate-200 dark:border-slate-700',
+            )}
+          >
+            <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-slate-400">
+              新建标签
+            </div>
+            {(['chat', 'organize', 'labels', 'settings'] as AITabType[]).map(
+              (type) => (
+                <button
+                  key={type}
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setOpen(false)
+                    onPick(type)
+                  }}
+                  className={cn(
+                    'w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left',
+                    'text-slate-700 dark:text-slate-200',
+                    'hover:bg-slate-100 dark:hover:bg-slate-700/60',
+                  )}
+                >
+                  <span className="text-sm leading-none" aria-hidden>
+                    {TAB_ICON[type]}
+                  </span>
+                  <span className="truncate">{TAB_LABELS[type]}</span>
+                </button>
+              ),
+            )}
+          </div>,
+          document.body,
+        )}
+    </>
+  )
 }
