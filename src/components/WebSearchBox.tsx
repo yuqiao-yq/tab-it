@@ -11,6 +11,9 @@ import { useBookmarkStore } from '../stores/useBookmarkStore'
  * - 输入以 `@web ` 开头 → 标记为「网页搜索模式」，本地搜索结果不再触发；
  *   回车时去掉前缀，用所选搜索引擎打开新标签页
  * - 输入以 `@bm ` 开头 → 强制本地搜索（语义化别名，行为与默认一致）
+ * - 输入以 `#tag` 开头 → 标签筛选模式：把原始字符串（含 #）写入 store，
+ *   BookmarkGrid 据此切换为「按 tag 精确筛选」视图。点书签卡上的 tag chip
+ *   也会通过 store.setSearchKeyword('#xxx') 触发本框反向同步显示，统一入口。
  * - 默认模式回车：
  *     - 本地有匹配 → 打开第一个匹配书签（沿用用户最常见诉求：找一个书签直接打开）
  *     - 没有匹配     → 自动 fallback 到所选搜索引擎搜全网
@@ -38,7 +41,7 @@ const ENGINES: Engine[] = [
 const STORAGE_KEY = 'tabit:web-search-engine'
 
 /** 前缀解析：把 raw 拆成「模式 + 实际查询词」 */
-type Mode = 'auto' | 'web' | 'local'
+type Mode = 'auto' | 'web' | 'local' | 'tag'
 function parseQuery(raw: string): { mode: Mode; q: string } {
   const trimmed = raw.replace(/^\s+/, '')
   // 容错：允许 @web、@web<空格>、@web<tab> 等
@@ -47,6 +50,10 @@ function parseQuery(raw: string): { mode: Mode; q: string } {
   }
   if (/^@bm(\s+|$)/i.test(trimmed)) {
     return { mode: 'local', q: trimmed.replace(/^@bm\s*/i, '').trim() }
+  }
+  // tag 模式：以 # 开头（不需要空格分隔，#xxx 即可）
+  if (/^#/.test(trimmed)) {
+    return { mode: 'tag', q: trimmed.replace(/^#+/, '').trim() }
   }
   return { mode: 'auto', q: trimmed.trim() }
 }
@@ -69,11 +76,20 @@ export function WebSearchBox() {
   // 本地搜索：把"实际查询词"同步到 store（@web 模式时清掉，避免主区被误切到搜索视图）
   const cards = useBookmarkStore((s) => s.cards)
   const setSearchKeyword = useBookmarkStore((s) => s.setSearchKeyword)
+  const storeKeyword = useBookmarkStore((s) => s.searchKeyword)
   const parsed = useMemo(() => parseQuery(raw), [raw])
 
+  /**
+   * 把 raw 同步到 store.searchKeyword：
+   * - web 模式：清掉，避免主区误切到本地搜索
+   * - tag 模式：保留 `#xxx` 原文写入 store（让 BookmarkGrid 据此切换为 tag 筛选视图）
+   * - local / auto：写入"去前缀"的 q（兼容历史行为）
+   */
   useEffect(() => {
     if (parsed.mode === 'web') {
-      setSearchKeyword('') // 网页模式：主区不要展示本地搜索结果
+      setSearchKeyword('')
+    } else if (parsed.mode === 'tag') {
+      setSearchKeyword(parsed.q ? `#${parsed.q}` : '')
     } else {
       setSearchKeyword(parsed.q)
     }
@@ -81,6 +97,27 @@ export function WebSearchBox() {
     return () => setSearchKeyword('')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [parsed.mode, parsed.q])
+
+  /**
+   * 反向同步：外部源（卡片上 tag chip / 标签管理面板）通过
+   * `setSearchKeyword('#xxx')` 触发筛选时，搜索框也要显示出 `#xxx`，
+   * 否则用户看不到当前过滤条件、也无法清除。
+   *
+   * 触发条件：storeKeyword 与本地推得的"应写入值"不一致时，把 storeKeyword
+   * 拷贝到 raw（这一步会再触发上面那个 useEffect，但二者最终一致后停止迭代）。
+   */
+  useEffect(() => {
+    // 计算"按当前 raw 应写入 store 的值"
+    let derived = ''
+    if (parsed.mode === 'web') derived = ''
+    else if (parsed.mode === 'tag') derived = parsed.q ? `#${parsed.q}` : ''
+    else derived = parsed.q
+    if (storeKeyword !== derived) {
+      setRaw(storeKeyword)
+    }
+    // 仅依赖 storeKeyword：raw 变化时另一个 useEffect 已经在维护一致性
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storeKeyword])
 
   // 持久化用户选择的引擎
   useEffect(() => {
@@ -129,6 +166,8 @@ export function WebSearchBox() {
       setRaw('')
       return
     }
+    // tag 模式回车：什么都不做（持续筛选；按 ✕ / Esc 才退出）
+    if (mode === 'tag') return
     // local / auto：先尝试打开第一个匹配；没有就 fallback 到网页搜索（auto 模式下）
     if (firstLocalMatch) {
       window.open(firstLocalMatch.url, '_blank', 'noopener,noreferrer')
@@ -142,7 +181,7 @@ export function WebSearchBox() {
     // local 模式没有匹配时不强行跳网页，避免误操作
   }
 
-  // 视觉上模式标识：默认显示引擎 favicon，@web 模式高亮，@bm 模式显示书签 icon
+  // 视觉上模式标识：默认显示引擎 favicon，@web 模式高亮，@bm / tag 各自有彩色徽标
   const modeChip = (
     <span
       className={cn(
@@ -152,21 +191,27 @@ export function WebSearchBox() {
           ? 'bg-brand text-white'
           : parsed.mode === 'local'
             ? 'bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300'
-            : 'text-slate-400',
+            : parsed.mode === 'tag'
+              ? 'bg-violet-100 dark:bg-violet-500/20 text-violet-700 dark:text-violet-300'
+              : 'text-slate-400',
       )}
       title={
         parsed.mode === 'web'
           ? '网页搜索模式（@web）'
           : parsed.mode === 'local'
             ? '仅本地书签（@bm）'
-            : '本地优先；输入 @web 强制走网页搜索'
+            : parsed.mode === 'tag'
+              ? '按标签筛选（#tag）'
+              : '本地优先；输入 @web 强制走网页搜索；输入 #tag 按标签筛选'
       }
     >
       {parsed.mode === 'web'
         ? '网页'
         : parsed.mode === 'local'
           ? '书签'
-          : '智能'}
+          : parsed.mode === 'tag'
+            ? '标签'
+            : '智能'}
     </span>
   )
 
@@ -213,7 +258,7 @@ export function WebSearchBox() {
             if (e.key === 'Enter') submit()
             if (e.key === 'Escape') setRaw('')
           }}
-          placeholder="搜索书签 / 网页…  输入 @web 强制网页搜索"
+          placeholder="搜索书签 / 网页…  @web 网页搜索 · #标签 筛选"
           className={cn(
             'flex-1 min-w-0 h-full px-2 text-sm bg-transparent outline-none',
             'placeholder:text-slate-400',
@@ -232,24 +277,28 @@ export function WebSearchBox() {
         <button
           type="button"
           onClick={submit}
-          disabled={!parsed.q}
+          disabled={!parsed.q || parsed.mode === 'tag'}
           className={cn(
             'h-7 px-2.5 rounded text-xs font-medium transition-colors shrink-0',
-            parsed.q
+            parsed.q && parsed.mode !== 'tag'
               ? 'bg-brand text-white hover:bg-brand-600'
               : 'bg-slate-100 text-slate-400 dark:bg-slate-700 dark:text-slate-500 cursor-not-allowed',
           )}
           title={
             parsed.mode === 'web'
               ? `用 ${engine.name} 搜索网页 (Enter)`
-              : firstLocalMatch
-                ? `打开匹配书签：${firstLocalMatch.title}`
-                : `用 ${engine.name} 搜索网页 (Enter)`
+              : parsed.mode === 'tag'
+                ? '标签筛选无需回车；点 ✕ 退出筛选'
+                : firstLocalMatch
+                  ? `打开匹配书签：${firstLocalMatch.title}`
+                  : `用 ${engine.name} 搜索网页 (Enter)`
           }
         >
-          {parsed.mode === 'web' || (parsed.mode === 'auto' && !firstLocalMatch)
-            ? '搜网页'
-            : '打开'}
+          {parsed.mode === 'tag'
+            ? '筛选中'
+            : parsed.mode === 'web' || (parsed.mode === 'auto' && !firstLocalMatch)
+              ? '搜网页'
+              : '打开'}
         </button>
       </div>
 
@@ -287,7 +336,7 @@ export function WebSearchBox() {
             </button>
           ))}
           <div className="mt-1 px-3 pt-1.5 pb-1 border-t border-slate-100 dark:border-slate-700/60 text-[10px] text-slate-400 leading-relaxed">
-            提示：输入 <code className="font-mono text-slate-500">@web 关键字</code> 强制走网页搜索；输入 <code className="font-mono text-slate-500">@bm 关键字</code> 仅查本地书签。
+            提示：输入 <code className="font-mono text-slate-500">@web 关键字</code> 强制走网页搜索；输入 <code className="font-mono text-slate-500">@bm 关键字</code> 仅查本地书签；输入 <code className="font-mono text-slate-500">#标签名</code> 按标签筛选。
           </div>
         </div>
       )}

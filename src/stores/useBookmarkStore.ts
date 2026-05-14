@@ -106,6 +106,18 @@ interface BookmarkState {
   moveCard: (cardId: string, targetCategoryId: string, targetIndex: number) => Promise<void>
   reorderCardsInCategory: (categoryId: string, orderedIds: string[]) => Promise<void>
 
+  // ─── Tag CRUD ────────────────────────────────────
+  /** 设置某张卡片的 tags（覆盖式；空数组 = 清空） */
+  setCardTags: (cardId: string, tags: string[]) => Promise<void>
+  /** 批量设置 tags：{ cardId: tags }；用于 AI 一次性写入多条 */
+  setCardTagsBatch: (entries: Array<{ cardId: string; tags: string[] }>) => Promise<void>
+  /** 全库改名：把所有卡片中的 oldTag 替换为 newTag（去重） */
+  renameTag: (oldTag: string, newTag: string) => Promise<void>
+  /** 全库合并：把多个 tag 合并到一个目标 tag */
+  mergeTags: (tagsToMerge: string[], target: string) => Promise<void>
+  /** 全库删除：从所有卡片中移除该 tag */
+  removeTag: (tag: string) => Promise<void>
+
   /** 记录一次"打开书签"，用于"最近使用"模块；自动去重并截断到 buffer 上限 */
   recordRecentOpen: (cardId: string) => Promise<void>
   /** 修改最近使用展示数量（持久化） */
@@ -464,6 +476,97 @@ export const useBookmarkStore = create<BookmarkState>((set, get) => ({
     set({ cards: get().cards.map((c) => (c.id === id ? updated : c)) })
   },
 
+  async setCardTags(cardId, tags) {
+    const normalized = normalizeTags(tags)
+    await get().updateCard(cardId, {
+      tags: normalized.length > 0 ? normalized : undefined,
+    })
+  },
+
+  async setCardTagsBatch(entries) {
+    if (entries.length === 0) return
+    const now = Date.now()
+    const cardMap = new Map(get().cards.map((c) => [c.id, c]))
+    const toSave: BookmarkCard[] = []
+    for (const e of entries) {
+      const card = cardMap.get(e.cardId)
+      if (!card) continue
+      const tags = normalizeTags(e.tags)
+      const next: BookmarkCard = {
+        ...card,
+        tags: tags.length > 0 ? tags : undefined,
+        updatedAt: now,
+      }
+      cardMap.set(e.cardId, next)
+      toSave.push(next)
+    }
+    if (toSave.length === 0) return
+    await getRepository().saveCards(toSave)
+    set({
+      cards: get().cards.map((c) => cardMap.get(c.id) ?? c),
+    })
+  },
+
+  async renameTag(oldTag, newTag) {
+    const from = oldTag.trim()
+    const to = newTag.trim()
+    if (!from || !to || from === to) return
+    const now = Date.now()
+    const toSave: BookmarkCard[] = []
+    const nextCards = get().cards.map((c) => {
+      if (!c.tags?.includes(from)) return c
+      const next = Array.from(
+        new Set(c.tags.map((t) => (t === from ? to : t))),
+      )
+      const updated = { ...c, tags: next, updatedAt: now }
+      toSave.push(updated)
+      return updated
+    })
+    if (toSave.length > 0) await getRepository().saveCards(toSave)
+    set({ cards: nextCards })
+  },
+
+  async mergeTags(tagsToMerge, target) {
+    const merge = new Set(tagsToMerge.map((t) => t.trim()).filter(Boolean))
+    const t = target.trim()
+    if (!t || merge.size === 0) return
+    merge.delete(t)
+    if (merge.size === 0) return
+    const now = Date.now()
+    const toSave: BookmarkCard[] = []
+    const nextCards = get().cards.map((c) => {
+      if (!c.tags?.some((tag) => merge.has(tag))) return c
+      const next = Array.from(
+        new Set(c.tags.map((tag) => (merge.has(tag) ? t : tag))),
+      )
+      const updated = { ...c, tags: next, updatedAt: now }
+      toSave.push(updated)
+      return updated
+    })
+    if (toSave.length > 0) await getRepository().saveCards(toSave)
+    set({ cards: nextCards })
+  },
+
+  async removeTag(tag) {
+    const t = tag.trim()
+    if (!t) return
+    const now = Date.now()
+    const toSave: BookmarkCard[] = []
+    const nextCards = get().cards.map((c) => {
+      if (!c.tags?.includes(t)) return c
+      const next = c.tags.filter((x) => x !== t)
+      const updated: BookmarkCard = {
+        ...c,
+        tags: next.length > 0 ? next : undefined,
+        updatedAt: now,
+      }
+      toSave.push(updated)
+      return updated
+    })
+    if (toSave.length > 0) await getRepository().saveCards(toSave)
+    set({ cards: nextCards })
+  },
+
   async removeCard(id) {
     await getRepository().deleteCard(id)
     // 同步清理"最近使用"，避免出现指向已删卡片的脏记录
@@ -602,6 +705,27 @@ export const useBookmarkStore = create<BookmarkState>((set, get) => ({
 }))
 
 /** BFS 收集所有后代分类 ID（与 LocalRepository 中的逻辑对称） */
+/**
+ * 标签标准化：trim、过滤空、去重、单个 ≤ 12 字符、整体 ≤ 8 个。
+ * 在所有 tag 写入前都过一遍，避免脏数据。
+ */
+function normalizeTags(tags: string[] | undefined | null): string[] {
+  if (!Array.isArray(tags)) return []
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const raw of tags) {
+    if (typeof raw !== 'string') continue
+    const t = raw.trim().slice(0, 12)
+    if (!t) continue
+    const key = t.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(t)
+    if (out.length >= 8) break
+  }
+  return out
+}
+
 function collectDescendantIds(ids: string[], allCats: Category[]): Set<string> {
   const result = new Set(ids)
   const queue = [...ids]

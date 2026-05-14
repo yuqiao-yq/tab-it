@@ -55,6 +55,7 @@ export function BookmarkCardItem({
   const removeCard = useBookmarkStore((s) => s.removeCard)
   const updateCard = useBookmarkStore((s) => s.updateCard)
   const recordRecentOpen = useBookmarkStore((s) => s.recordRecentOpen)
+  const setSearchKeyword = useBookmarkStore((s) => s.setSearchKeyword)
 
   // disabled 让 useSortable 不响应拖拽，但仍保留 ref 用于其他逻辑（最近使用模块场景）
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
@@ -265,8 +266,19 @@ export function BookmarkCardItem({
             <div className="text-sm font-medium truncate" title={card.title}>
               {card.title}
             </div>
-            <div className="text-xs text-slate-400 truncate">
-              {getHostname(card.url)}
+            <div className="flex items-center gap-1 min-w-0">
+              <span className="text-xs text-slate-400 truncate min-w-0 flex-1">
+                {getHostname(card.url)}
+              </span>
+              {/* 标签 chips：紧贴 hostname 右侧；超过 2 个用 +N 收纳。
+                  点击 chip → 设置全局 searchKeyword=#tag 触发 BookmarkGrid 切换为 tag 筛选视图。
+                  draggable=false 的搜索结果卡片仍然显示，方便用户继续按 tag 收敛 */}
+              {card.tags && card.tags.length > 0 && (
+                <CardTagChips
+                  tags={card.tags}
+                  onPickTag={(t) => setSearchKeyword(`#${t}`)}
+                />
+              )}
             </div>
           </div>
         )}
@@ -416,6 +428,67 @@ function SearchSourceChip({ meta }: { meta: SearchMeta }) {
         </span>
       )}
     </div>
+  )
+}
+
+/**
+ * 卡片标签 chips（紧凑展示）
+ * - 默认显示前 2 个 chip；超过用 +N 收纳
+ * - hover chip → tooltip 显示完整 tag；hover +N → tooltip 列出所有
+ * - click chip → 触发 onPickTag（在主区切换为 tag 筛选视图）
+ *
+ * 这里不与卡片整体的 click 共享事件 —— stopPropagation 避免误打开 URL；
+ * 也禁用 dnd-kit 拖拽（pointerdown stopPropagation），让用户能稳定点中。
+ */
+function CardTagChips({
+  tags,
+  onPickTag,
+}: {
+  tags: string[]
+  onPickTag: (tag: string) => void
+}) {
+  const MAX_VISIBLE = 2
+  const visible = tags.slice(0, MAX_VISIBLE)
+  const overflow = tags.length - visible.length
+
+  return (
+    <span
+      className="inline-flex items-center gap-0.5 shrink-0"
+      onClick={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
+      title={tags.map((t) => `#${t}`).join(' ')}
+    >
+      {visible.map((t) => (
+        <button
+          key={t}
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            onPickTag(t)
+          }}
+          className={cn(
+            'inline-flex items-center px-1 h-3.5 rounded text-[9px] leading-none',
+            'bg-brand/10 text-brand hover:bg-brand/20',
+            'max-w-[64px] truncate transition-colors',
+          )}
+          title={`筛选含 #${t} 的书签`}
+        >
+          {t}
+        </button>
+      ))}
+      {overflow > 0 && (
+        <span
+          className={cn(
+            'inline-flex items-center px-1 h-3.5 rounded text-[9px] leading-none',
+            'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400',
+            'tabular-nums',
+          )}
+          title={tags.slice(MAX_VISIBLE).map((t) => `#${t}`).join(' ')}
+        >
+          +{overflow}
+        </span>
+      )}
+    </span>
   )
 }
 

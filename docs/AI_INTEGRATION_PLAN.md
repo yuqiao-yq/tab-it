@@ -372,12 +372,12 @@ src/components/ai/
 - [ ] 顶部新增 ✨ 模式 chip：`# tag` 前缀进入标签搜索
 
 #### Checklist
-- [ ] 卡片渲染 tag chip（≥1 个 tag 时显示）
-- [ ] tag 点击事件 → 全库筛选视图
-- [ ] tagger service（批量调用）
-- [ ] LabelsTab 组件（含批量 + 管理）
-- [ ] 搜索框支持 `#tag` 前缀
-- [ ] tags 合并 / 改名 store action
+- [x] 卡片渲染 tag chip（≥1 个 tag 时显示）
+- [x] tag 点击事件 → 全库筛选视图
+- [x] tagger service（批量调用）
+- [x] LabelsTab 组件（含批量 + 管理）
+- [x] 搜索框支持 `#tag` 前缀
+- [x] tags 合并 / 改名 store action
 
 ---
 
@@ -868,11 +868,11 @@ export const usageTracker = {
 ## 11. 进度追踪 Checklist
 
 ### 阶段 V1.0
-- [ ] 4.0 浮窗壳子（FAB + Floating Panel + Tab）⭐ 前置
-- [ ] 4.1 第三方 API 入口（设置 Tab）
-- [ ] 4.2 AI 整理书签助手（整理 Tab）
+- [x] 4.0 浮窗壳子（FAB + Floating Panel + Tab）⭐ 前置
+- [x] 4.1 第三方 API 入口（设置 Tab）
+- [x] 4.2 AI 整理书签助手（整理 Tab）
 - [ ] 4.3 AI 添加书签辅助（popup）
-- [ ] 4.4 自动打标签 + Tag 系统（标签 Tab）
+- [x] 4.4 自动打标签 + Tag 系统（标签 Tab）
 
 ### 阶段 V1.5
 - [ ] 5.1 语义搜索

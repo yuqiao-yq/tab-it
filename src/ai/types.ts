@@ -219,7 +219,73 @@ export interface RangeStat {
   categoryCount: number
 }
 
+// ─── AI 自动打标签（Tagger） ──────────────────────────
 
+/** 打标签的范围 */
+export type TagRange =
+  /** 全库未打过标签的书签（默认；最常见诉求） */
+  | { type: 'untagged' }
+  /** 全库所有书签（包含已有 tags 的，会被覆盖） */
+  | { type: 'all' }
+  /** 某个分类（含后代）下的书签 */
+  | { type: 'category'; id: string }
+
+export const TAG_RANGE_LABEL: Record<TagRange['type'], string> = {
+  untagged: '仅未打标签的书签',
+  all: '全部书签（覆盖已有标签）',
+  category: '指定分类',
+}
+
+/**
+ * 单条 AI 打标签建议
+ * - oldTags: 卡片当前已有的 tags（用于 diff 视图对比）
+ * - newTags: AI 建议的 tags（标准化后；空数组表示 AI 觉得无合适标签）
+ */
+export interface TagSuggestion {
+  bookmarkId: string
+  /** 原标签（可能为 undefined / [] ） */
+  oldTags?: string[]
+  /** AI 建议的新标签集合（已标准化） */
+  newTags: string[]
+}
+
+/**
+ * 打标签 Plan：AI 输出的"打标签建议"完整描述。
+ * 应用前用户可对单条 ✓/✗ 接受/拒绝；也可在 UI 中编辑 newTags 后再应用。
+ */
+export interface TagPlan {
+  id: string
+  createdAt: number
+  range: TagRange
+  /** 每条卡片一个建议（仅含 AI 真的给了 tag 的，oldTags 仅作对比） */
+  suggestions: TagSuggestion[]
+  /** AI 调用元数据 */
+  meta: {
+    provider: string
+    model: string
+    promptTokens: number
+    completionTokens: number
+    estimatedCostCny?: number
+  }
+}
+
+/** 用户对 TagPlan 的接受/拒绝 + 编辑后的 tags */
+export interface TagPlanReview {
+  /** 接受的 bookmarkId 集合（拒绝的不在内） */
+  accepted: Set<string>
+  /** 用户编辑后的 tags：bookmarkId → tags；未编辑的项不在 map 中（沿用 newTags） */
+  edits: Map<string, string[]>
+}
+
+/** Tagger 任务状态（与 OrganizeStage 对称） */
+export type TagStage =
+  | 'config'
+  | 'estimate'
+  | 'running'
+  | 'preview'
+  | 'applying'
+  | 'done'
+  | 'error'
 
 // ─── 浮窗 Tab 类型 ──────────────────────────────────────
 

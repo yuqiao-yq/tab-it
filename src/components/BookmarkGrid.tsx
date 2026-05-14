@@ -26,10 +26,23 @@ export function BookmarkGrid() {
   const allCards = useBookmarkStore((s) => s.cards)
   const allCategories = useBookmarkStore((s) => s.categories)
   const activeCategoryId = useBookmarkStore((s) => s.activeCategoryId)
+  const setSearchKeyword = useBookmarkStore((s) => s.setSearchKeyword)
   const keyword = useBookmarkStore((s) => s.searchKeyword)
 
   // 搜索模式：全库搜索书签（不显示文件夹）
   const isSearching = keyword.trim().length > 0
+  /**
+   * 标签筛选模式：keyword 形如 "#xxx"
+   * 由 WebSearchBox 在 tag mode 下、或 BookmarkCardItem / LabelsTab 的
+   * tag chip 点击时通过 setSearchKeyword('#xxx') 触发。
+   * 搜索时按 tag 精确匹配（大小写不敏感），不再走 title/url substring。
+   */
+  const tagFilter = useMemo(() => {
+    const t = keyword.trim()
+    if (!t.startsWith('#')) return null
+    const tag = t.replace(/^#+/, '').trim()
+    return tag.length > 0 ? tag : null
+  }, [keyword])
 
   /**
    * 搜索结果：先按关键字匹配命中所有 cards，再按 URL（小写）去重展示。
@@ -39,18 +52,25 @@ export function BookmarkGrid() {
    * 平铺渲染，用户输入两个字母（如 "go"）会看到一长串"重复"卡片。
    *
    * 现在：
-   * - 按 url 分组，每组只保留 updatedAt 最大者作为代表（认为它是最新维护的版本）
+   * - tag 模式：按 tags 精确匹配（大小写不敏感）；不去重，让用户看到所有副本
+   * - 普通模式：按 url 分组，每组只保留 updatedAt 最大者作为代表（认为它是最新维护的版本）
    * - 同时收集副本所在的所有分类路径，传给卡片以 chip + tooltip 展示
    * - 顶部增加结果统计，让用户知道「N 条独立结果（原始命中 M 条）」
    */
   const searchResult = useMemo(() => {
     if (!isSearching) return { items: [], rawCount: 0 }
-    const kw = keyword.trim().toLowerCase()
-    const matched = allCards.filter(
-      (c) =>
-        c.title.toLowerCase().includes(kw) ||
-        c.url.toLowerCase().includes(kw),
-    )
+    const matched = tagFilter
+      ? allCards.filter((c) =>
+          c.tags?.some((t) => t.toLowerCase() === tagFilter.toLowerCase()),
+        )
+      : (() => {
+          const kw = keyword.trim().toLowerCase()
+          return allCards.filter(
+            (c) =>
+              c.title.toLowerCase().includes(kw) ||
+              c.url.toLowerCase().includes(kw),
+          )
+        })()
     // 分类路径快查表
     const catMap = new Map(allCategories.map((c) => [c.id, c]))
     const pathOf = (catId: string): string => {
@@ -92,15 +112,51 @@ export function BookmarkGrid() {
       })
       .sort((a, b) => b.card.updatedAt - a.card.updatedAt)
     return { items, rawCount: matched.length }
-  }, [allCards, allCategories, keyword, isSearching])
+  }, [allCards, allCategories, keyword, isSearching, tagFilter])
 
   // 搜索模式：扁平展示
   if (isSearching) {
     const { items, rawCount } = searchResult
     return (
       <div>
-        {/* 顶部统计：让用户感知"重复被合并了" */}
-        {items.length > 0 && (
+        {/* tag 模式：突出展示当前筛选的 tag，提供一键清除 */}
+        {tagFilter && (
+          <div
+            className={cn(
+              'mb-3 px-2.5 py-1.5 rounded-md inline-flex items-center gap-2',
+              'bg-violet-50 dark:bg-violet-500/10',
+              'border border-violet-200 dark:border-violet-500/30',
+              'text-xs text-violet-700 dark:text-violet-300',
+            )}
+          >
+            <span className="text-[10px] uppercase tracking-wider opacity-70">
+              按标签筛选
+            </span>
+            <span className="font-medium">
+              <span className="opacity-60">#</span>
+              {tagFilter}
+            </span>
+            <span className="text-violet-400 tabular-nums">
+              · {items.length} 张卡片
+            </span>
+            <button
+              type="button"
+              onClick={() => setSearchKeyword('')}
+              className={cn(
+                'ml-1 w-4 h-4 inline-flex items-center justify-center rounded text-[11px]',
+                'text-violet-400 hover:text-violet-700 dark:hover:text-violet-100',
+                'hover:bg-violet-100 dark:hover:bg-violet-500/20',
+              )}
+              title="清除筛选"
+              aria-label="清除筛选"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
+        {/* 顶部统计：让用户感知"重复被合并了"（tag 模式下另起视觉） */}
+        {!tagFilter && items.length > 0 && (
           <div className="text-xs text-slate-400 mb-3 px-1">
             找到 <span className="tabular-nums text-slate-600 dark:text-slate-300">{items.length}</span>{' '}
             条独立结果
@@ -125,8 +181,10 @@ export function BookmarkGrid() {
           ))}
         </div>
         {items.length === 0 && (
-          <div className="col-span-full text-center py-16 text-slate-400">
-            没有找到匹配的书签
+          <div className="col-span-full text-center py-16 text-slate-400 text-sm">
+            {tagFilter
+              ? `没有书签使用 #${tagFilter} 标签`
+              : '没有找到匹配的书签'}
           </div>
         )}
       </div>
