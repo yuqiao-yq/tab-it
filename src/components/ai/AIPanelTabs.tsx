@@ -12,10 +12,10 @@ const TAB_ICON: Record<AITabType, string> = {
 }
 
 const TAB_LABELS: Record<AITabType, string> = {
-  chat: '💬 新对话',
-  organize: '🗂 整理书签',
-  labels: '🏷 自动标签',
-  settings: '⚙ AI 设置',
+  chat: '新对话',
+  organize: '整理书签',
+  labels: '自动标签',
+  settings: 'AI 设置',
 }
 
 /**
@@ -105,8 +105,6 @@ export function AIPanelTabs() {
 function NewTabMenu({ onPick }: { onPick: (type: AITabType) => void }) {
   const [open, setOpen] = useState(false)
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
-  // 诊断用：可视化点击次数。如果点击 + 按钮但这个数字不变，说明 onClick 没触发
-  const [clickCount, setClickCount] = useState(0)
   const btnRef = useRef<HTMLButtonElement | null>(null)
   const menuRef = useRef<HTMLDivElement | null>(null)
 
@@ -168,32 +166,21 @@ function NewTabMenu({ onPick }: { onPick: (type: AITabType) => void }) {
         type="button"
         onClick={(e) => {
           e.stopPropagation()
-          console.log('[Tab It] + 新建标签按钮被点击', { count: clickCount + 1 })
-          setClickCount((c) => c + 1)
           setOpen((v) => !v)
         }}
         className={cn(
-          // 临时调宽到 'w-auto px-2'，让点击次数能显示出来用作诊断
-          'h-6 px-2 inline-flex items-center justify-center gap-1 rounded shrink-0',
+          'w-6 h-6 inline-flex items-center justify-center rounded shrink-0',
           'text-slate-400 hover:text-brand',
           'hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors',
           'text-base leading-none',
           open && 'text-brand bg-brand/10',
         )}
-        title="新建标签（如果点击没反应，请告诉我数字是否变化）"
+        title="新建标签"
         aria-label="新建标签"
         aria-haspopup="menu"
         aria-expanded={open}
       >
-        <span>+</span>
-        {clickCount > 0 && (
-          <span
-            className="text-[10px] font-mono text-brand bg-brand/10 px-1 rounded"
-            aria-hidden
-          >
-            {clickCount}
-          </span>
-        )}
+        +
       </button>
 
       {open &&
