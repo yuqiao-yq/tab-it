@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useToastStore, type Toast, type ToastKind } from '../stores/useToastStore'
 import { cn } from '../utils/cn'
@@ -48,14 +48,38 @@ function ToastItem({
     return () => cancelAnimationFrame(id)
   }, [])
 
+  // 倒计时进度（仅当 duration > 0 且 ≥ 5s 时显示，避免短 toast 闪烁）
+  const showCountdown = t.duration >= 5_000
+  const startedAt = useRef(Date.now())
+  const [remaining, setRemaining] = useState(t.duration)
+  useEffect(() => {
+    if (!showCountdown) return
+    const tick = () => {
+      const left = Math.max(0, t.duration - (Date.now() - startedAt.current))
+      setRemaining(left)
+    }
+    const id = setInterval(tick, 250)
+    return () => clearInterval(id)
+  }, [showCountdown, t.duration])
+
   const palette = KIND_PALETTE[t.kind]
+  const pct = showCountdown ? (remaining / t.duration) * 100 : 0
+
+  const handleAction = async () => {
+    if (!t.action) return
+    try {
+      await t.action.onClick()
+    } finally {
+      onDismiss()
+    }
+  }
 
   return (
     <div
       role="status"
       className={cn(
-        'pointer-events-auto min-w-[260px] max-w-[360px]',
-        'rounded-md border shadow-lg backdrop-blur',
+        'pointer-events-auto min-w-[280px] max-w-[380px]',
+        'rounded-md border shadow-lg backdrop-blur overflow-hidden',
         'transition-all duration-200 ease-out',
         palette.container,
         visible
@@ -87,6 +111,28 @@ function ToastItem({
               {t.message}
             </div>
           )}
+          {t.action && (
+            <button
+              type="button"
+              onClick={() => void handleAction()}
+              className={cn(
+                'mt-2 inline-flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium',
+                'transition-colors',
+                t.action.variant === 'danger'
+                  ? 'bg-red-500 text-white hover:bg-red-600'
+                  : t.action.variant === 'primary'
+                    ? 'bg-brand text-white hover:bg-brand-600'
+                    : 'border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/60',
+              )}
+            >
+              {t.action.label}
+              {showCountdown && (
+                <span className="text-[10px] tabular-nums opacity-70">
+                  {Math.ceil(remaining / 1000)}s
+                </span>
+              )}
+            </button>
+          )}
         </div>
         <button
           type="button"
@@ -102,6 +148,14 @@ function ToastItem({
           ✕
         </button>
       </div>
+      {/* 底部进度条：直观显示倒计时 */}
+      {showCountdown && (
+        <div
+          className="h-0.5 bg-slate-200 dark:bg-slate-700 transition-all"
+          style={{ width: `${pct}%` }}
+          aria-hidden
+        />
+      )}
     </div>
   )
 }

@@ -129,6 +129,97 @@ export function isAIConfigured(s: AISettings): boolean {
   return s.providers.some((p) => p.id === chatId)
 }
 
+// ─── AI 整理（Organize） ───────────────────────────────
+
+/** 整理范围 */
+export type OrganizeRange =
+  | { type: 'all' }
+  | { type: 'category'; id: string }
+  | { type: 'uncategorized' } // 顶层散落项
+
+/** 整理风格倾向，会作为 prompt 的一部分 */
+export type OrganizeStyle = 'work' | 'study' | 'life' | 'free'
+
+export const ORGANIZE_STYLE_LABEL: Record<OrganizeStyle, string> = {
+  work: '工作主题为主（前端开发 / 设计资源 / 文档...）',
+  study: '学习主题为主（语言 / 算法 / 公开课...）',
+  life: '生活主题为主（购物 / 影视 / 美食...）',
+  free: '不指定，让 AI 自由发挥',
+}
+
+/**
+ * 整理 Plan：AI 输出的"整理建议"完整描述。
+ * 应用前用户可对单条 ✓/✗ 接受 / 拒绝。
+ */
+export interface OrganizePlan {
+  id: string
+  createdAt: number
+  range: OrganizeRange
+  style: OrganizeStyle
+  /** 即将新建的分类 */
+  newCategories: NewCategoryProposal[]
+  /** 书签的归属变化 */
+  assignments: BookmarkAssignment[]
+  /** 建议删除的空分类 id（应用前会再校验：仍为空才删） */
+  deletions: string[]
+  /** AI 调用的元数据 */
+  meta: {
+    provider: string
+    model: string
+    promptTokens: number
+    completionTokens: number
+    /** 估算成本（人民币元；模型表 hardcoded） */
+    estimatedCostCny?: number
+  }
+}
+
+export interface NewCategoryProposal {
+  /** AI 给的临时 id（tmp_xxx）；应用时会替换为真实 uuid */
+  tempId: string
+  name: string
+  icon?: string
+  /** 创建该分类的理由（用于在 diff UI 上显示） */
+  rationale?: string
+}
+
+export interface BookmarkAssignment {
+  bookmarkId: string
+  /** 当前所属分类 id（未分类时是 null） */
+  fromCategoryId: string | null
+  /** 目标：要么 newCategories[].tempId，要么现有 categoryId */
+  targetTempId?: string
+  targetCategoryId?: string
+}
+
+/** 用户在 diff 阶段对单条建议的接受 / 拒绝状态 */
+export interface PlanReview {
+  /** 接受新建的分类 tempId 集合（拒绝的 tempId 不在内） */
+  acceptedNewCategoryTempIds: Set<string>
+  /** 接受的 assignments index */
+  acceptedAssignments: Set<number>
+  /** 接受的 deletions categoryId */
+  acceptedDeletions: Set<string>
+}
+
+/**
+ * 整理执行的阶段。组件用此切换 UI。
+ */
+export type OrganizeStage =
+  | 'config'    // 用户配置 range / style / 隐私
+  | 'estimate'  // 显示成本估算，等待用户确认
+  | 'running'   // AI 处理中（可取消）
+  | 'preview'   // 已得到 plan，diff 视图供用户挑选
+  | 'applying'  // 正在应用到 store / repository
+  | 'done'      // 应用完成，60s 撤销窗口
+  | 'error'     // 任意阶段出错的统一结束态
+
+/** 范围对应的待处理书签数（在 config 阶段实时计算给用户看） */
+export interface RangeStat {
+  bookmarkCount: number
+  categoryCount: number
+}
+
+
 
 // ─── 浮窗 Tab 类型 ──────────────────────────────────────
 

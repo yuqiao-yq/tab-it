@@ -17,6 +17,15 @@ import { v4 as uuid } from 'uuid'
 
 export type ToastKind = 'success' | 'error' | 'info' | 'warning'
 
+export interface ToastAction {
+  /** 按钮文本 */
+  label: string
+  /** 点击后的回调；返回 truthy 则保持 toast 打开（默认点击后立刻关闭） */
+  onClick: () => void | Promise<void>
+  /** 按钮样式：default 灰，primary brand，danger 红 */
+  variant?: 'default' | 'primary' | 'danger'
+}
+
 export interface Toast {
   id: string
   kind: ToastKind
@@ -24,6 +33,14 @@ export interface Toast {
   message?: string
   /** 自动消失时间（ms）；0 表示不自动消失，必须用户手动点 ✕ */
   duration: number
+  /** 操作按钮（可选）；用于「撤销」「重试」等场景 */
+  action?: ToastAction
+  /**
+   * 当 toast 未到 duration 就被关闭时的回调（用户主动 ✕ 也会触发）。
+   * 用于"撤销窗口"场景：超时未被点击 → 清理临时数据；用户 ✕ → 也清理。
+   * 注意：被 dismiss API 显式调用关闭时也会触发；调用方注意避免重入。
+   */
+  onDismiss?: () => void
 }
 
 interface ToastState {
@@ -34,6 +51,8 @@ interface ToastState {
     title: string
     message?: string
     duration?: number
+    action?: ToastAction
+    onDismiss?: () => void
   }) => string
   dismiss: (id: string) => void
   /** 清空所有（少用，例如在某些路由切换时） */
@@ -54,18 +73,31 @@ const DEFAULT_DURATION: Record<ToastKind, number> = {
 
 export const useToastStore = create<ToastState>((set, get) => ({
   toasts: [],
-  show({ kind, title, message, duration }) {
+  show({ kind, title, message, duration, action, onDismiss }) {
     const id = uuid()
     const finalDuration = duration ?? DEFAULT_DURATION[kind]
-    set((s) => ({ toasts: [...s.toasts, { id, kind, title, message, duration: finalDuration }] }))
+    set((s) => ({
+      toasts: [
+        ...s.toasts,
+        { id, kind, title, message, duration: finalDuration, action, onDismiss },
+      ],
+    }))
     if (finalDuration > 0) {
-      // setTimeout 在 store 外层调度即可；toast 容器组件不依赖此 setTimeout
       setTimeout(() => get().dismiss(id), finalDuration)
     }
     return id
   },
   dismiss(id) {
-    set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }))
+    const t = get().toasts.find((x) => x.id === id)
+    set((s) => ({ toasts: s.toasts.filter((x) => x.id !== id) }))
+    // dismiss 触发 onDismiss（无论是定时到 / 用户 ✕ / 程序调用）
+    if (t?.onDismiss) {
+      try {
+        t.onDismiss()
+      } catch {
+        /* swallow */
+      }
+    }
   },
   clear() {
     set({ toasts: [] })
@@ -98,4 +130,13 @@ export const toast = {
   warning: (title: string, message?: string, duration?: number) =>
     useToastStore.getState().warning(title, message, duration),
   dismiss: (id: string) => useToastStore.getState().dismiss(id),
+  /** 完整版：支持 action 按钮 / onDismiss 等高级配置 */
+  show: (input: {
+    kind: ToastKind
+    title: string
+    message?: string
+    duration?: number
+    action?: ToastAction
+    onDismiss?: () => void
+  }) => useToastStore.getState().show(input),
 }
