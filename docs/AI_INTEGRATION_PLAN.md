@@ -1,0 +1,991 @@
+# Tab It - AI 接入开发计划
+
+> 本文档是 [`ROADMAP.md`](./ROADMAP.md) 中 V3.0 「AI 自动分类」「智能去重」等条目的展开版，
+> 覆盖完整的 AI 能力规划、技术架构、隐私与成本设计，以及可勾选的实施 checklist。
+>
+> 维护节奏：每完成一项任务勾掉对应 `[ ]`；阶段完成后在阶段标题前加 ✅。
+
+---
+
+## 1. 愿景与定位
+
+| 阶段 | 定位 |
+|------|------|
+| 今天 | DIY 新标签页 + 书签整理工具 |
+| **AI 接入后** | **个人浏览数据的智能管家** —— 让 N 千个书签从负担变成可搜索、可对话的资产 |
+
+核心 slogan：**「AI 帮你整理、提炼、检索你这些年攒下的整个互联网」**
+
+---
+
+## 2. 总体架构与原则
+
+### 2.1 架构总览
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                  UI Layer (React Components)            │
+│  ✨ FAB │ Floating Panel │ Tabs │ Diff Viewer │ Chat   │
+└─────────────────────────────────────────────────────────┘
+                           ↓
+┌─────────────────────────────────────────────────────────┐
+│              AI Service Layer (业务编排)                 │
+│  organizer / labeler / searcher / chatter / suggester   │
+└─────────────────────────────────────────────────────────┘
+                           ↓
+┌─────────────────────────────────────────────────────────┐
+│              Provider Abstraction (统一接口)             │
+│  chat() │ embedding() │ stream()                        │
+└─────────────────────────────────────────────────────────┘
+                           ↓
+┌────────────┬────────────┬────────────┬─────────────────┐
+│  OpenAI    │ DeepSeek   │ window.ai  │  Local (Ollama) │
+│  Compatible│ /Moonshot/ │ (Chrome    │                 │
+│  Adapter   │ Azure...   │  Built-in) │                 │
+└────────────┴────────────┴────────────┴─────────────────┘
+```
+
+### 2.2 核心原则
+
+| 原则 | 含义 |
+|------|------|
+| **Opt-in** | 所有 AI 功能默认关闭；首次使用前显式同意 |
+| **隐私优先** | 默认匿名模式（URL 仅取 domain）；用户可主动放开为完整模式 |
+| **本地优先** | Chrome `window.ai` 可用时优先本地，降本兼降隐私风险 |
+| **可撤销** | AI 改动数据前必留 snapshot；至少 60s 撤销窗 |
+| **成本透明** | 每次操作前显示 token 估算 + 成本估算 |
+| **能力外露** | 提供本地 HTTP API，让 Cursor / Raycast 等生态接入 |
+| **交互浮窗化** | 所有 AI 交互收敛到一个**可拖动浮窗** + 内部 Tab，主区永远不被打扰 |
+
+---
+
+## 3. 阶段路线图（一览）
+
+| 阶段 | 主题 | 关键能力 | 预计工期 |
+|------|------|---------|---------|
+| V1.0 | **浮窗壳子 + 基础设施 + 整理助手** | 浮窗框架 / API 入口 / AI 整理 / AI 加书签 / 自动标签 | 3-4 周 |
+| V1.5 | **智能搜索增强** | 语义搜索 / 被动整理建议 / window.ai 优先 | 1-2 周 |
+| V2.0 | **个人知识库** | 网页内容抓取 / RAG 问答 / AI 总结备注 / 重复检测 | 3-4 周 |
+| V3.0 | **生态扩展** | 本地 HTTP API / MCP Server 桥接 / 相关推荐 / 多浮窗 | 2-3 周 |
+
+---
+
+## 4. 阶段一：V1.0 AI MVP（3-4 周）
+
+### 任务 4.0 浮窗壳子（FAB + Floating Panel + Tab）⭐ 前置
+
+**优先级**：P0（所有 AI 功能的前置依赖）  ·  **工期**：4-5 天  ·  **依赖**：无
+
+#### 用户故事
+> 作为用户，我希望有一个**永远在角落随时可调用**的 AI 助手浮窗，
+> 它**不抢主区空间**，我可以**拖到任何位置 / 自由调整大小**，
+> 也可以最小化为小角标继续浏览，不被它打扰。
+
+#### 验收标准（DoD）
+- [ ] 右下角悬浮按钮（FAB）：52×52，圆形，brand 色，✨ 图标
+- [ ] FAB 状态机：
+  - **未配置 AI**：灰色，点击 → 浮窗打开「⚙ 设置」tab，引导配置
+  - **已配置、浮窗关闭**：彩色，点击 → 浮窗打开
+  - **浮窗展开中**：FAB 隐藏（避免双入口）
+  - **浮窗最小化**：FAB 隐藏（小 chip 自身就是入口）
+  - **AI 处理中**：呼吸光晕动画
+- [ ] 浮窗（Floating Panel）：
+  - 默认尺寸 380 × 520，最小 280×360，最大 720×80vh
+  - 默认位置：距右 24，距底 96（避开 FAB）
+  - 整个 header 都是拖动区
+  - 右下 + 右边缘 + 下边缘 三处 resize 手柄
+  - 双击 header → 切换最大化（70vw × 80vh）
+  - 右键 header → 「恢复默认位置 / 永远置顶 / 关闭」
+  - **失焦不关闭**（与 modal 不同）
+  - 点击浮窗 → 自动 z-index 置顶
+  - ESC 不关闭（持续存在是核心价值）
+- [ ] 最小化形态：右下角小 chip `[ ✨ AI 助手 (思考中…) ▴ ] [×]`
+- [ ] 内部 Tab 体系：`[💬 对话][🗂 整理][🏷 标签][⚙ 设置][+]`
+- [ ] 全局快捷键 `Cmd/Ctrl+J` 唤起 / 隐藏浮窗
+- [ ] 浮窗位置 / 尺寸 / 当前 Tab 持久化到 `chrome.storage.local`
+- [ ] 边界保护：浮窗位置不能超出视口（至少留 100px 在视口内）
+- [ ] 视口变化（resize）时：超出视口的浮窗自动吸附回来
+
+#### 技术要点
+
+**1. 拖动 / Resize**
+
+```ts
+// 用 transform 不用 left/top，避免 reflow，60fps 流畅
+element.style.transform = `translate3d(${x}px, ${y}px, 0)`
+element.style.willChange = 'transform'
+
+// 拖动期间禁文本选中
+document.body.style.userSelect = 'none'
+```
+
+**2. 状态管理（zustand）**
+
+```ts
+interface AIPanelState {
+  visible: boolean
+  minimized: boolean
+  maximized: boolean
+  position: { x: number; y: number }
+  size: { width: number; height: number }
+  activeTab: string
+  tabs: AIPanelTab[]
+  zIndex: number  // 多浮窗时用（V2）
+
+  open: () => void
+  close: () => void
+  toggleMinimize: () => void
+  toggleMaximize: () => void
+  setPosition: (p: Position) => void
+  setSize: (s: Size) => void
+  addTab: (tab: AIPanelTab) => void
+  closeTab: (id: string) => void
+  setActiveTab: (id: string) => void
+}
+```
+
+**3. z-index 体系**
+
+- ToastContainer：`z-[10000]`
+- CardMenu / IconPicker：`z-[9999]`
+- AI Panel：`z-[10100]`（高于 toast，因为浮窗持续存在不应被遮挡）
+- AI Panel 拖动到上面时：临时拉到 `10200`
+
+#### 文件清单
+```
+src/ai/
+├── types.ts                       # AI 公共类型
+└── panel/
+    ├── usePanelStore.ts           # 浮窗状态 + 持久化
+    ├── useDraggable.ts            # 拖动 hook（headless）
+    └── useResizable.ts            # 缩放 hook（headless）
+
+src/components/ai/
+├── AIFAB.tsx                      # 右下角 ✨ 浮按钮
+├── AIPanel.tsx                    # 浮窗容器
+├── AIPanelHeader.tsx              # 拖动条 + 控制按钮
+├── AIPanelTabs.tsx                # tab 切换条
+├── AIPanelMinimized.tsx           # 最小化小 chip
+└── tabs/
+    ├── ChatTab.tsx                # 占位
+    ├── OrganizeTab.tsx            # 占位
+    ├── LabelsTab.tsx              # 占位
+    └── SettingsTab.tsx            # 占位
+```
+
+#### Checklist
+- [ ] zustand panel store + 持久化
+- [ ] AIFAB 组件（含 4 种状态视觉）
+- [ ] useDraggable hook（带边界保护）
+- [ ] useResizable hook（三处手柄）
+- [ ] AIPanel 容器（含 max-z-index 提升逻辑）
+- [ ] AIPanelHeader（拖动 + 双击最大化 + 右键菜单）
+- [ ] AIPanelTabs（基础 tab 切换 UI）
+- [ ] AIPanelMinimized chip
+- [ ] 全局快捷键 Cmd/Ctrl+J（在 App.tsx 注册）
+- [ ] 视口变化吸附逻辑
+- [ ] 4 个空 tab 占位组件（带 "敬请期待" 文案）
+- [ ] 集成到 App.tsx（FAB + Panel 通过 portal 挂到 body）
+
+---
+
+### 任务 4.1 第三方 API 入口（设置 Tab）
+
+**优先级**：P0  ·  **工期**：3-4 天  ·  **依赖**：4.0
+
+#### 用户故事
+> 作为用户，我希望能填入自己的 OpenAI 兼容服务（DeepSeek / 智谱 / 自部署 Ollama 等），
+> 让 Tab It 用我自己的额度跑 AI 功能。
+
+#### 验收标准
+- [ ] 浮窗「⚙ 设置」Tab 实现 Provider 配置 UI
+- [ ] 支持添加多个 Provider（增删改）
+- [ ] Provider 字段：name / type / baseURL / apiKey / model / 是否默认
+- [ ] 提供「测试连接」按钮（发一条 hello 验证）
+- [ ] 任务级路由：可分别为「对话」「分类」「Embedding」选不同 Provider
+- [ ] API key 仅存 `chrome.storage.local`，**绝不进 sync 也不进 export json**
+- [ ] 未配置任何 Provider 时，FAB 灰色 + 点击浮窗自动落到 ⚙ Tab 并显示引导
+
+#### 技术要点
+- 抽象 `Provider` 接口（`chat`、`embedding`、`stream`）
+- 实现 `OpenAICompatibleProvider`（覆盖 95% 提供商）
+- 实现 `WindowAIProvider`（Chrome 138+ Gemini Nano）
+
+#### 文件清单
+```
+src/ai/
+├── providers/
+│   ├── base.ts                   # 抽象接口
+│   ├── openai-compatible.ts      # 主力实现
+│   └── window-ai.ts              # Chrome 内置
+├── manager.ts                    # 全局 Provider 注册 + 路由
+└── usage-tracker.ts              # 累计 token / 成本统计
+
+src/components/ai/tabs/
+└── SettingsTab.tsx               # 不再是独立弹窗，而是浮窗内 tab
+```
+
+#### Checklist
+- [ ] `Provider` 抽象接口定义
+- [ ] OpenAI Compatible adapter 实现
+- [ ] Window.ai adapter 实现（带 fallback 检测）
+- [ ] AISettings 类型 + zustand store（与 useBookmarkStore 解耦）
+- [ ] AISettings 持久化到 chrome.storage.local
+- [ ] SettingsTab 组件（Provider 列表 + 表单）
+- [ ] 测试连接逻辑
+- [ ] FAB 状态联动「是否已配置」
+
+---
+
+### 任务 4.2 AI 整理书签助手（整理 Tab）⭐ 核心
+
+**优先级**：P0  ·  **工期**：5-7 天  ·  **依赖**：4.0 + 4.1
+
+#### 用户故事
+> 作为有 N 千个书签的重度用户，我希望让 AI 帮我自动按主题分组，
+> 但**整理结果必须先预览**，我能挑选接受哪些建议，并随时撤销。
+
+#### 验收标准
+- [ ] 浮窗「🗂 整理」Tab 承载完整流程：
+  1. **配置阶段**：整理范围（全部 / 当前分类 / 仅未分类）+ 风格倾向
+  2. **执行前提示**：发送条目数 + 估算 token + 估算成本
+  3. **执行中**：进度条（分批 prompt），可取消
+  4. **Diff 预览**：按 section 分组（新建分类、移动、删除空分类）
+  5. **应用 / 部分应用 / 取消**
+- [ ] Diff 视图列表很长时，浮窗可双击 header 最大化（70vw）查看
+- [ ] 单条建议可独立 ✓/✗
+- [ ] 应用后写入 IndexedDB snapshot，60s 内可一键撤销（撤销提示用 toast 显示倒计时）
+- [ ] 整理任务即使关闭浮窗也保留进度，重开后自动恢复到对应阶段
+
+#### 技术要点
+
+**1. 数据准备（控制 token 成本）**
+```ts
+type BookmarkSlice = {
+  id: string
+  title: string  // 截断到 80 字符
+  domain: string // 仅 domain，不发完整 URL（隐私 + 省 token）
+}
+```
+
+**2. Prompt 设计（强约束 JSON Schema）**：见附录 A.1
+
+**3. 分批策略**
+- 每批 100 条书签调一次 API
+- 多批之间复用上一批的 newCategories 作为 context
+
+**4. Diff Plan 数据结构**
+```ts
+type OrganizePlan = {
+  id: string
+  createdAt: number
+  source: { type: 'all' | 'category', id?: string }
+  newCategories: Array<{
+    tempId: string
+    name: string
+    icon?: string
+    bookmarkIds: string[]
+  }>
+  moves: Array<{
+    bookmarkId: string
+    fromCategory: string
+    toCategoryNewTempId?: string
+    toCategoryExistingId?: string
+  }>
+  deletions: string[]
+  meta: { provider: string; tokens: number; cost: number }
+}
+```
+
+#### 文件清单
+```
+src/ai/services/
+├── organizer.ts                  # 调 LLM + 解析 + 分批
+└── plan.ts                       # Plan 类型 + 应用 / 撤销
+
+src/components/ai/tabs/
+└── OrganizeTab.tsx               # 整理 Tab（多阶段）
+
+src/components/ai/
+├── DiffViewer.tsx                # diff 视图（按 section 分组）
+└── OrganizeProgress.tsx          # 进度 + 取消
+```
+
+#### Checklist
+- [ ] OrganizePlan 类型 + plan store
+- [ ] 数据切片函数（去 URL，截标题）
+- [ ] Prompt 模板 + JSON Schema 约束（zod 校验返回值）
+- [ ] organizer service：分批 + 合并 + 去重
+- [ ] OrganizeTab 多阶段组件（config / running / preview / done）
+- [ ] 进度条 + 取消按钮
+- [ ] DiffViewer 组件（按 section 分组展示）
+- [ ] 单条 ✓/✗ 交互
+- [ ] applyPlan 实现（含 IndexedDB snapshot）
+- [ ] undoPlan 实现（60s 内可触发）
+- [ ] 撤销 toast（持久 + 倒计时显示）
+- [ ] 关闭浮窗保留任务状态（store 持久化）
+
+---
+
+### 任务 4.3 AI 添加书签辅助（popup）
+
+**优先级**：P1  ·  **工期**：1-2 天  ·  **依赖**：4.1
+
+> popup 自成体系，不接入浮窗范式（弹窗本身已经是浮层）
+
+#### 用户故事
+> 在 popup 里点「添加当前页面」时，我希望 AI 自动建议：
+> - 应该归到哪个分类
+> - 一句话简介当备注
+> - 推荐的 tags
+
+#### 验收标准
+- [ ] popup 「添加当前页面」表单内增加 ✨「AI 建议」按钮
+- [ ] 点击后调一次 LLM，自动填入 suggestedCategory / description / tags
+- [ ] 用户可修改后再保存
+- [ ] AI 未启用时按钮隐藏
+
+#### Checklist
+- [ ] suggester service（单条调用）
+- [ ] popup UI：✨ 按钮 + loading 态 + 错误重试
+- [ ] 自动填充逻辑（不覆盖用户已修改的字段）
+
+---
+
+### 任务 4.4 自动打标签 + Tag 系统（标签 Tab）
+
+**优先级**：P1  ·  **工期**：3-4 天  ·  **依赖**：4.0 + 4.1
+
+#### 用户故事
+> 我希望每个书签有 3-5 个标签（已经在数据模型预留 `tags?: string[]`），
+> AI 可以批量为我没打标签的书签自动打。
+> 我也能在卡片上看到、点击 tag 筛选。
+
+#### 验收标准
+- [ ] 卡片右下角显示 1-2 个 tag chip（hover 显示全部）
+- [ ] 点 tag → 全局筛选（与搜索相似的扁平视图）
+- [ ] 浮窗「🏷 标签」Tab 提供：
+  - 「批量自动打标签」按钮
+  - 标签管理面板（合并、改名、删除）
+  - 标签使用统计
+- [ ] 同样按 100 条/批 处理
+- [ ] 顶部新增 ✨ 模式 chip：`# tag` 前缀进入标签搜索
+
+#### Checklist
+- [ ] 卡片渲染 tag chip（≥1 个 tag 时显示）
+- [ ] tag 点击事件 → 全库筛选视图
+- [ ] tagger service（批量调用）
+- [ ] LabelsTab 组件（含批量 + 管理）
+- [ ] 搜索框支持 `#tag` 前缀
+- [ ] tags 合并 / 改名 store action
+
+---
+
+## 5. 阶段二：V1.5 智能搜索增强（1-2 周）
+
+### 任务 5.1 语义搜索
+
+**优先级**：P0  ·  **工期**：4-5 天  ·  **依赖**：4.1
+
+#### 用户故事
+> 我记不清原标题，只记得是"那篇讲 React 性能的文章"，
+> 应该也能搜到。
+
+#### 验收标准
+- [ ] 后台批量为所有书签生成 embedding（一次性，写入 IndexedDB）
+- [ ] 搜索框模式 chip 增加 `✨ AI`
+- [ ] AI 模式下按向量近似排序
+- [ ] 新建 / 修改书签后自动补 embedding
+- [ ] 浮窗「⚙ 设置」Tab 增加「Embedding 管理」section（重新生成、查看进度）
+
+#### 技术要点
+- embedding 模型：默认 `text-embedding-3-small`（1536 维，便宜）
+- 存储：IndexedDB 新表 `embeddings: { bookmarkId, vector: Float32Array, model, createdAt }`
+- 检索：余弦相似度，top K=20，本地计算
+- 失败兜底：embedding 缺失的书签按原有 substring 搜索打补丁
+
+#### Checklist
+- [ ] EmbeddingProvider 接口
+- [ ] 批量生成任务（带进度条，可在浮窗 ⚙ Tab 内查看）
+- [ ] IndexedDB embeddings table
+- [ ] 余弦相似度计算函数
+- [ ] 搜索框 ✨ AI 模式
+- [ ] BookmarkGrid 适配语义搜索结果排序
+- [ ] embedding 增量更新 hook（addCard / updateCard 时触发）
+
+---
+
+### 任务 5.2 被动整理建议
+
+**优先级**：P2  ·  **工期**：2-3 天  ·  **依赖**：4.2
+
+#### 验收标准
+- [ ] 每次新增书签累计 ≥ 10 条 / 距上次提示 ≥ 7 天 时触发
+- [ ] FAB 上加一个红点角标，点击浮窗自动落到「🗂 整理」Tab，并预填范围
+- [ ] 浮窗顶部有一条提示横幅：`检测到 12 个 React 相关书签未分类，建议建一个分类`
+- [ ] 用户可全局关闭被动建议（在 ⚙ 设置 Tab）
+
+---
+
+### 任务 5.3 Chrome window.ai 优先
+
+**优先级**：P2  ·  **工期**：2 天  ·  **依赖**：4.1
+
+#### 验收标准
+- [ ] AI 设置加「优先使用浏览器内置 AI」开关
+- [ ] 启动时检测 `window.ai` 可用性，浮窗 footer 显示徽标 ✓ Local
+- [ ] 简单任务（分类 / 单条标签）走本地，复杂任务（整理 / 对话）仍走远程
+- [ ] 不可用时静默 fallback，不报错
+
+---
+
+## 6. 阶段三：V2.0 个人知识库（3-4 周）
+
+### 任务 6.1 网页内容抓取
+
+**优先级**：P0  ·  **工期**：5-7 天  ·  **依赖**：4.1
+
+#### 用户故事
+> 我希望 Tab It 能后台为我收藏过的网页保存正文摘要，
+> 这样我能问 "上周看的 React 文章里谁推荐了 useReducer？"
+
+#### 验收标准
+- [ ] manifest 增加 `host_permissions: ['*://*/*']`，**首次使用前显示隐私说明**
+- [ ] 浮窗「⚙ 设置」Tab 加「内容抓取」section：
+  - 「为某分类抓取内容」按钮（不默认全量爬）
+  - 抓取队列进度
+- [ ] 抓取流程：
+  - 用 `fetch` 拉 HTML
+  - 用 `Readability.js`（mozilla 抽离的开源库）提取正文
+  - 截断到前 8000 字符（控制 embedding 成本）
+  - 写入 IndexedDB `pageContents` table
+- [ ] 抓取失败的书签标灰 / 重试按钮
+- [ ] 对每条抓取的页面单独显示「✨ 已索引」徽标
+
+#### 技术要点
+- 浏览器扩展可绕过 CORS：用 `host_permissions` + `fetch`
+- 失败处理：robots.txt 拒绝 / 403 / 超时
+- 增量：只抓取新增/更新的书签
+- 隐私 alert：必须显示「将下载 N 个网页内容到本地」
+
+#### Checklist
+- [ ] manifest host_permissions 调整 + 升级提示
+- [ ] Readability.js 集成
+- [ ] crawler service（带并发限制 + 重试）
+- [ ] pageContents IndexedDB table
+- [ ] 抓取进度页（队列 / 完成 / 失败 tab）
+- [ ] 卡片角标显示索引状态
+
+---
+
+### 任务 6.2 RAG 问答（对话 Tab）
+
+**优先级**：P0  ·  **工期**：5-7 天  ·  **依赖**：5.1 + 6.1
+
+#### 用户故事
+> 我希望在浮窗「💬 对话」Tab 用自然语言提问，
+> AI 基于我已收藏的网页内容回答，并附上参考链接。
+
+#### 验收标准
+- [ ] 浮窗「💬 对话」Tab 提供完整聊天界面：
+  - 上方：对话历史流（user / assistant 消息气泡）
+  - 下方：输入框 + 发送按钮
+  - 底部：本次会话引用的书签列表（可点击跳转）
+- [ ] 多对话支持：浮窗 Tab 栏「+」可新建对话，每个对话是独立 Tab
+  - Tab 标题自动从首条提问生成（如 `React 性能...`）
+- [ ] 每次问答流程：
+  1. 提问 embedding 化
+  2. 向量检索 top 10 chunks
+  3. chunks 作为 context 拼 prompt
+  4. 流式输出答案
+  5. 答案中引用 `[1] [2]` 与底部书签卡片对应
+- [ ] 多轮对话支持
+- [ ] 「清空对话」「导出为 markdown」按钮
+
+#### 技术要点
+- chunk 切分：每 500 token 切一段，重叠 50 token
+- 检索：先粗筛 top 20，再用 LLM 精排到 top 5
+- prompt 模板见附录 A.2
+- 流式：SSE / fetch ReadableStream
+
+#### Checklist
+- [ ] chunk 切分函数
+- [ ] retrieve service（embedding + 余弦）
+- [ ] rerank service（可选，先用简单 top-K）
+- [ ] chat prompt 模板
+- [ ] ChatTab 组件（消息流 + 引用卡片）
+- [ ] 流式渲染（逐字显示 + 「停止」按钮）
+- [ ] 对话持久化（按 Tab 一对一存 storage）
+- [ ] 多对话 Tab 管理（新建 / 关闭 / 切换）
+
+---
+
+### 任务 6.3 AI 自动备注
+
+**优先级**：P2  ·  **工期**：2-3 天  ·  **依赖**：6.1
+
+- [ ] 抓取完内容后，AI 为每条书签写 1 句话摘要
+- [ ] 写入 `card.description`（不覆盖用户已写的）
+- [ ] 浮窗「⚙ 设置」Tab 提供开关：是否自动总结新增书签
+
+---
+
+### 任务 6.4 重复 / 失效检测
+
+**优先级**：P1  ·  **工期**：3-4 天  ·  **依赖**：4.2
+
+- [ ] 整理 Tab 扩展：增加「检测重复 / 失效」模式
+- [ ] 重复判定：URL 完全一致、URL 不同但标题 + 内容 embedding 相似度 > 0.9
+- [ ] 失效检测：HEAD 请求返回 4xx/5xx 标记为失效
+- [ ] 在 diff 视图中按红黄蓝三色分组：
+  - 🔴 失效
+  - 🟡 疑似重复
+  - 🔵 长期未访问（≥ 6 月）
+- [ ] 「批量删除」「批量归档到僵尸文件夹」操作
+
+---
+
+## 7. 阶段四：V3.0 生态扩展（2-3 周）
+
+### 任务 7.1 本地 HTTP API
+
+**优先级**：P0  ·  **工期**：5-7 天  ·  **依赖**：所有 V1 能力
+
+#### 用户故事
+> 我希望在 Cursor / Raycast / Alfred 里直接搜我的 Tab It 书签
+
+#### 技术方案
+- 浏览器扩展不能直接开 HTTP server
+- 方案 A：Native Messaging 桥（一个 cli 应用作为代理）
+- 方案 B：用 Service Worker + WebSocket（仅限同浏览器）
+
+倾向方案 A，更标准。
+
+#### API 端点
+```
+GET  /v1/categories              列出所有分类
+GET  /v1/bookmarks?q=xxx&tag=xxx 搜索（支持语义）
+GET  /v1/bookmarks/:id           单个详情
+POST /v1/bookmarks               新增
+GET  /v1/chat?q=xxx              RAG 问答（SSE 流式）
+```
+
+#### Checklist
+- [ ] 设计 Native Messaging 协议
+- [ ] cli 桥应用（Rust / Node 都行，倾向 Rust 体积小）
+- [ ] HTTP server（仅 localhost，加 token 鉴权）
+- [ ] Cursor / Raycast 接入示例
+
+---
+
+### 任务 7.2 MCP Server 桥接
+
+**优先级**：P2  ·  **工期**：5 天  ·  **依赖**：7.1
+
+- [ ] 在 7.1 桥应用里加 MCP stdio 协议支持
+- [ ] 暴露工具：`search_bookmarks` / `get_content` / `add_bookmark` / `list_categories`
+- [ ] 适配 Claude Desktop / Cline / Continue 客户端
+
+---
+
+### 任务 7.3 多浮窗支持
+
+**优先级**：P1  ·  **工期**：3-4 天  ·  **依赖**：4.0
+
+> V1 是「一个浮窗 + 内部多 Tab」；V3 升级为「**可以同时开多个浮窗**」
+
+- [ ] 浮窗 Tab 上的「分离」按钮：把当前 Tab 拆成独立浮窗
+- [ ] z-index 自动管理：被点击的浮窗自动置顶
+- [ ] 多浮窗位置 / 尺寸独立持久化
+- [ ] 全局任务栏（窗口顶部 / 浮窗内）显示当前所有浮窗
+
+---
+
+### 任务 7.4 相关阅读推荐
+
+**优先级**：P1  ·  **工期**：2-3 天  ·  **依赖**：5.1
+
+- [ ] BookmarkCardItem 详情态展示「相关阅读」section
+- [ ] 基于 embedding 余弦相似度从已有书签中找 top 3
+- [ ] **不引入外部数据**，避免推荐质量失控 / 商业化嫌疑
+
+---
+
+## 8. 关键技术架构详解
+
+### 8.1 Provider 抽象层
+
+```ts
+// src/ai/types.ts
+export interface AIProvider {
+  id: string                          // 用户给的别名，如 "我的 DeepSeek"
+  type: 'openai-compatible' | 'window-ai' | 'ollama'
+
+  chat(opts: ChatOptions): Promise<ChatResponse>
+  chatStream(opts: ChatOptions): AsyncIterable<ChatChunk>
+  embedding?(input: string[]): Promise<number[][]>
+
+  testConnection(): Promise<{ ok: boolean; message?: string }>
+}
+
+export interface ChatOptions {
+  messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>
+  temperature?: number
+  maxTokens?: number
+  responseFormat?: 'text' | 'json'
+  jsonSchema?: object
+}
+```
+
+### 8.2 浮窗状态模型
+
+```ts
+// src/ai/panel/usePanelStore.ts
+export interface AIPanelTab {
+  id: string
+  type: 'chat' | 'organize' | 'labels' | 'settings'
+  title: string
+  /** Tab 自有 state，关闭浮窗 / 切换 tab 不丢失（持久化到 storage） */
+  state: any
+  createdAt: number
+}
+
+export interface AIPanelState {
+  visible: boolean
+  minimized: boolean
+  maximized: boolean
+  position: { x: number; y: number }
+  size: { width: number; height: number }
+  activeTabId: string | null
+  tabs: AIPanelTab[]
+
+  open: (tabType?: AIPanelTab['type']) => void
+  close: () => void
+  toggleMinimize: () => void
+  toggleMaximize: () => void
+  setPosition: (p: Position) => void
+  setSize: (s: Size) => void
+  addTab: (tab: AIPanelTab) => void
+  closeTab: (id: string) => void
+  setActiveTab: (id: string) => void
+}
+```
+
+### 8.3 数据模型扩展
+
+```ts
+// src/types/ai.ts (新增)
+export interface AISettings {
+  enabled: boolean
+  providers: AIProviderConfig[]
+  routing: {
+    chat: string       // provider id
+    organize: string
+    embedding: string
+  }
+  privacy: {
+    anonymousMode: boolean      // domain only
+    allowContentCrawl: boolean  // V2 用
+    showCostEstimate: boolean
+  }
+  preferLocal: boolean   // window.ai 优先
+  panel: {
+    /** 持久化的浮窗位置 + 尺寸 */
+    position?: { x: number; y: number }
+    size?: { width: number; height: number }
+  }
+}
+
+export interface AIProviderConfig {
+  id: string
+  name: string
+  type: 'openai-compatible' | 'window-ai' | 'ollama'
+  baseURL?: string
+  apiKey?: string  // 不进 export json
+  model: string
+  embeddingModel?: string
+  isDefault: boolean
+}
+
+export interface OrganizePlan {
+  id: string
+  createdAt: number
+  source: { type: 'all' | 'category', id?: string }
+  newCategories: Array<{ tempId: string; name: string; icon?: string }>
+  bookmarkAssignments: Array<{ bookmarkId: string; targetTempId?: string; targetCategoryId?: string }>
+  deletions: string[]
+  meta: { provider: string; tokens: number; cost: number }
+}
+```
+
+### 8.4 隐私与匿名化
+
+```ts
+// src/ai/privacy.ts
+export function anonymizeBookmark(card: BookmarkCard, mode: 'full' | 'domain' | 'hash'): object {
+  switch (mode) {
+    case 'full':   return { id: card.id, title: card.title, url: card.url }
+    case 'domain': return { id: card.id, title: card.title, domain: new URL(card.url).hostname }
+    case 'hash':   return { id: card.id, title: card.title, urlHash: sha256(card.url).slice(0,12) }
+  }
+}
+```
+
+### 8.5 成本控制
+
+```ts
+// src/ai/usage-tracker.ts
+export const usageTracker = {
+  estimate(messages: ChatMessage[]): { tokens: number; cost: number } {
+    // 简单估算：1 token ≈ 0.75 个字符（中文）/ 4 个字符（英文）
+    // 价格表硬编码常见模型
+  },
+  record(provider: string, model: string, usage: { promptTokens; completionTokens }): void {
+    // 写入 IndexedDB usage 表，支持按月查询
+  },
+}
+```
+
+### 8.6 用户必看的成本提示
+
+```
+┌──────────────────────────────────────────┐
+│ 即将操作：AI 整理 873 个书签              │
+│                                            │
+│ 发送数据：标题 + 域名（域名匿名化已开）   │
+│ 估算 tokens：12,400 prompt + 3,000 output │
+│ 估算成本：¥0.05 (DeepSeek)                │
+│                                            │
+│ 本月已用：¥0.32 / 累计 47 次操作         │
+│                                            │
+│  [ 取消 ]    [ 确认执行 ]                 │
+└──────────────────────────────────────────┘
+```
+
+---
+
+## 9. UX/视觉设计原则
+
+### 9.0 整体交互范式：可拖动浮窗 + 多 Tab 多任务
+
+**核心设计**：所有 AI 交互**收敛到同一个浮窗内**，主区永远不被打扰。
+
+```
+┌───────────────────────────────────────────────┐
+│  Tab It 主区（不被任何 AI UI 遮挡或挤压）      │
+│                                                │
+│  ┌─────────────┬───────────────────────┐      │
+│  │             │                       │      │
+│  │  侧栏       │  最近使用 / 卡片网格   │      │
+│  │             │                       │      │
+│  │             │              ╔══════════╗   │
+│  │             │              ║ ⠿ ✨ AI  ║ ← 可自由拖动
+│  │             │              ╠══════════╣   │
+│  │             │              ║[💬][🗂][⚙]║ ← 多 Tab 切换
+│  │             │              ╠══════════╣   │
+│  │             │              ║          ║   │
+│  │             │              ║ 内容区   ║   │
+│  │             │              ║          ║   │
+│  │             │              ║          ║   │
+│  │             │              ║[输入框]  ║   │
+│  │             │              ╚══════════╝   │
+│  │             │                              │
+│  │             │                       ┌──┐   │
+│  └─────────────┴───────────────────────┤✨│ ← FAB
+│                                        └──┘   │
+└───────────────────────────────────────────────┘
+```
+
+**三种状态**：
+
+| 状态 | 形态 | FAB |
+|------|------|-----|
+| 关闭 | 无 | 显示 |
+| 默认 | 浮窗在用户上次位置（380×520） | 隐藏 |
+| 最小化 | 右下角小 chip `[ ✨ AI 助手 ▴ ]` | 隐藏 |
+| 最大化 | 居中 70vw × 80vh + 半透明遮罩 | 隐藏 |
+
+**多任务**：浮窗内通过 Tab 并存，例如：
+```
+[💬 对话1] [💬 对话2] [🗂 整理-进行中] [🏷 自动打标签-已完成] [⚙][+]
+```
+- 关闭浮窗 / 切换 Tab 不丢失任务进度
+- V3 升级为「分离 Tab 成独立浮窗」（多浮窗并存）
+
+### 9.1 入口设计
+
+| 入口位置 | 触发 |
+|---------|------|
+| **右下角 ✨ FAB** | 主入口；点击打开浮窗；状态联动「是否已配置 AI」 |
+| **`Cmd/Ctrl+J` 快捷键** | 全局唤起 / 隐藏浮窗（与 Notion AI 对齐） |
+| **浮窗最小化 chip** | 浮窗最小化时点击恢复 |
+| **搜索框 chip `✨ AI`** | 语义搜索（不走浮窗，主区原地切搜索结果） |
+| **搜索框 chip `# tag`** | 标签搜索 |
+| **popup「添加当前页面」** | ✨ 建议分类按钮（popup 自成体系，不接入浮窗） |
+| **BookmarkCardItem 详情** | 「相关阅读」+ 「✨ 总结」（V2，原地展开，不走浮窗） |
+
+> **不再使用**：原顶部 ✨ 下拉菜单（已废弃，统一到 FAB + Floating Panel）；
+> 齿轮菜单也**不再有「AI 设置」入口**（移到浮窗内 ⚙ Tab）。
+
+### 9.2 颜色与图标
+
+| 场景 | 视觉 |
+|------|------|
+| FAB 未配置 | 灰色 |
+| FAB 已配置 | brand 色 + ✨ 图标 |
+| FAB AI 处理中 | 呼吸光晕动画 |
+| FAB 有被动建议 | 右上小红点 |
+| 浮窗 header | 与卡片同款轻盈背景，dragging 时光标变 grabbing |
+| 浮窗最大化遮罩 | bg-black/30 |
+| AI 建议（待确认） | 紫色高亮（区别于普通新增的绿色） |
+| AI 出错 | 红色 toast + 「重试」「换 Provider」按钮 |
+| 本地 AI 标识 | 浮窗 footer 绿色 ✓ Local 徽标 |
+| 远程 AI 标识 | 浮窗 footer ☁ Cloud 徽标 |
+
+---
+
+## 10. 红线与避坑清单
+
+| ❌ 禁止做的 | ✅ 必须做的 |
+|----|----|
+| 默认开启任何 AI 功能 | 所有 AI 默认关闭，opt-in |
+| 把完整 URL 路径上传 | 默认匿名（domain only） |
+| API key 进 storage.sync 或 export json | 仅本地 storage.local，永不出包 |
+| 静默扣费 | 每次操作前显示估算成本 |
+| AI 直接写库不可撤销 | 强制 IndexedDB snapshot + 60s 撤销窗 |
+| 用 token 做"打字机"特效 | 流式必有「停止」按钮 |
+| 让 AI 决定删用户分类 | 删除一律先标 deletion，需用户勾 ✓ 才落库 |
+| 网页爬虫默认开 | manifest 升级时强制弹隐私说明 |
+| 发送给 AI 时丢失上下文 | 单 prompt 控制在 8K tokens 以内，分批 |
+| **浮窗失焦自动关闭**（与 modal 不同） | 浮窗持续存在，仅显式 × 才关闭 |
+| **浮窗位置 / 尺寸丢失** | 必须持久化到 storage.local |
+| **浮窗超出视口找不回来** | 边界保护：至少 100px 在视口内；resize 时自动吸附 |
+| **浮窗与 Toast / CardMenu 抢 z-index** | 用统一 z-index 体系（10000-10200） |
+| **关闭浮窗丢失任务进度** | Tab 内 state 持久化，下次打开恢复到对应阶段 |
+
+---
+
+## 11. 进度追踪 Checklist
+
+### 阶段 V1.0
+- [ ] 4.0 浮窗壳子（FAB + Floating Panel + Tab）⭐ 前置
+- [ ] 4.1 第三方 API 入口（设置 Tab）
+- [ ] 4.2 AI 整理书签助手（整理 Tab）
+- [ ] 4.3 AI 添加书签辅助（popup）
+- [ ] 4.4 自动打标签 + Tag 系统（标签 Tab）
+
+### 阶段 V1.5
+- [ ] 5.1 语义搜索
+- [ ] 5.2 被动整理建议
+- [ ] 5.3 window.ai 优先
+
+### 阶段 V2.0
+- [ ] 6.1 网页内容抓取
+- [ ] 6.2 RAG 问答（对话 Tab）
+- [ ] 6.3 AI 自动备注
+- [ ] 6.4 重复 / 失效检测
+
+### 阶段 V3.0
+- [ ] 7.1 本地 HTTP API
+- [ ] 7.2 MCP Server 桥接
+- [ ] 7.3 多浮窗支持
+- [ ] 7.4 相关阅读推荐
+
+---
+
+## 附录 A：Prompt 模板
+
+### A.1 AI 整理书签
+
+```
+[SYSTEM]
+你是一个浏览器书签整理助手。用户会发给你一组书签（title + domain），
+你需要按内容主题为它们提议新的分类结构。
+
+约束：
+1. 输出必须是合法 JSON，符合给定 Schema
+2. 新分类名简洁（≤6 字），优先复用已有分类
+3. 单个分类至少 3 条；少于 3 条的归到「杂项」
+4. 保持 bookmark id 不变
+5. 不要发明新的书签，只能重新组织提供的书签
+6. 整理风格：{userPreference}
+
+返回 JSON Schema：
+{
+  "newCategories": [
+    { "tempId": "tmp_1", "name": "前端开发", "icon": "💻", "rationale": "包含 React/Vue/Webpack 相关学习与文档" }
+  ],
+  "assignments": [
+    { "bookmarkId": "bk_xxx", "targetTempId": "tmp_1" }
+  ],
+  "deletions": ["category_id_to_remove_if_empty"]
+}
+
+[USER]
+现有分类（供参考，可复用其名）：
+{existingCategories}
+
+待整理书签（共 N 条）：
+{bookmarkList}
+```
+
+### A.2 RAG 问答
+
+```
+[SYSTEM]
+你是用户的私人书签知识库助手。回答用户问题时，必须基于以下提供的内容片段，
+并在答案中以 [1] [2] 等标号引用对应的来源。
+
+来源片段：
+{chunks}
+
+约束：
+1. 如果片段中没有相关信息，明确说"我的书签库里没找到相关内容"
+2. 引用必须准确（标号对应片段顺序）
+3. 简洁回答，避免冗余
+
+[USER]
+{question}
+```
+
+### A.3 单条标签生成
+
+```
+[SYSTEM]
+为这个书签生成 3-5 个简短的中文标签（每个 ≤4 字）。
+返回 JSON：{ "tags": ["...", "..."] }
+
+约束：
+- 标签是「主题分类」性质（如「前端」「设计」「工具」），不要描述（如「实用」「有趣」）
+- 优先复用已有标签
+
+已有标签库：{existingTags}
+
+[USER]
+书签：{title} - {domain}
+```
+
+---
+
+## 附录 B：参考资料
+
+- [Chrome 内置 AI: window.ai](https://developer.chrome.com/docs/ai/built-in)
+- [OpenAI API 兼容协议](https://platform.openai.com/docs/api-reference/chat)
+- [DeepSeek 定价](https://platform.deepseek.com/pricing)
+- [Mozilla Readability](https://github.com/mozilla/readability)
+- [MCP Spec](https://modelcontextprotocol.io)
+
+### 浮窗交互参考
+- [Notion AI](https://www.notion.so/product/ai) — Cmd+J 浮窗
+- [Linear Cmd+K](https://linear.app/) — 居中可拖浮窗
+- [Cursor Inline Edit](https://cursor.sh/) — 编辑器上的浮层
+- [Slack 浮动通话窗](https://slack.com/) — 经典可拖 + 最小化为角标
+
+---
+
+## 附录 C：版本历史
+
+| 日期 | 修改 |
+|------|------|
+| 2026-05-14 | 初版，规划 V1.0 - V3.0 完整路线（顶部下拉 + 弹窗范式） |
+| 2026-05-14 | **重大调整**：交互范式改为「FAB + 可拖动浮窗 + 内部多 Tab」；新增 §4.0 浮窗壳子任务作为所有 AI 功能的前置依赖；§9 视觉设计原则全面重写；§10 红线增加 5 条浮窗专属约束 |
