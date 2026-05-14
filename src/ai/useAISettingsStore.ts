@@ -161,8 +161,22 @@ function persist(state: AISettingsStore) {
 
 // ─── 推荐预设（让用户快速起步） ──────────────────────
 
+/**
+ * 预设分组：UI 用 `<optgroup>` 渲染，让下拉不至于一长串。
+ */
+export type ProviderGroup = 'cn' | 'global' | 'aggregator' | 'local' | 'experimental'
+
+export const PROVIDER_GROUP_LABEL: Record<ProviderGroup, string> = {
+  cn: '🇨🇳 国内（中文友好）',
+  global: '🌎 国外',
+  aggregator: '🔄 聚合 / 中转',
+  local: '💻 本地部署',
+  experimental: '🧪 实验性',
+}
+
 export interface ProviderPreset {
   type: ProviderType
+  group: ProviderGroup
   name: string
   baseURL: string
   defaultModel: string
@@ -170,52 +184,177 @@ export interface ProviderPreset {
   description: string
 }
 
+/**
+ * 添加新预设的指引：
+ * - group 决定下拉里出现在哪个分组
+ * - defaultEmbeddingModel 仅在该 Provider 真的支持 embedding 时填，否则留空
+ *   （V1.5 §5.1 语义搜索才用得到；此前完全不影响功能）
+ */
 export const PROVIDER_PRESETS: ProviderPreset[] = [
+  // ─── 🇨🇳 国内（中文友好） ───────────────────────────
   {
     type: 'openai-compatible',
+    group: 'cn',
     name: 'DeepSeek',
     baseURL: 'https://api.deepseek.com/v1',
     defaultModel: 'deepseek-chat',
-    description: '高性价比；deepseek-chat 适合通用对话，deepseek-reasoner 推理强',
+    description: '高性价比；deepseek-chat 通用 / deepseek-reasoner 推理（不支持 embedding）',
   },
   {
     type: 'openai-compatible',
+    group: 'cn',
+    name: 'Moonshot Kimi',
+    baseURL: 'https://api.moonshot.cn/v1',
+    defaultModel: 'moonshot-v1-8k',
+    description: '长上下文友好；8k / 32k / 128k 三档',
+  },
+  {
+    type: 'openai-compatible',
+    group: 'cn',
+    name: '智谱 GLM',
+    baseURL: 'https://open.bigmodel.cn/api/paas/v4',
+    defaultModel: 'glm-4-flash',
+    defaultEmbeddingModel: 'embedding-3',
+    description: 'glm-4-flash 完全免费 / glm-4-plus 付费；支持 embedding',
+  },
+  {
+    type: 'openai-compatible',
+    group: 'cn',
+    name: '阿里通义千问',
+    baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    defaultModel: 'qwen-plus',
+    defaultEmbeddingModel: 'text-embedding-v3',
+    description: 'qwen-turbo 便宜 / qwen-plus 平衡 / qwen-max 最强；支持 embedding',
+  },
+  {
+    type: 'openai-compatible',
+    group: 'cn',
+    name: '字节豆包',
+    baseURL: 'https://ark.cn-beijing.volces.com/api/v3',
+    defaultModel: 'doubao-1-5-pro-32k-250115',
+    defaultEmbeddingModel: 'doubao-embedding-text-240715',
+    description: '火山引擎；超便宜 ¥0.3-¥9/1M；模型名需用 endpoint id（在火山控制台查）',
+  },
+  {
+    type: 'openai-compatible',
+    group: 'cn',
+    name: '零一万物 Yi',
+    baseURL: 'https://api.lingyiwanwu.com/v1',
+    defaultModel: 'yi-large',
+    description: 'yi-large 强 / yi-medium 平衡',
+  },
+  {
+    type: 'openai-compatible',
+    group: 'cn',
+    name: 'MiniMax',
+    baseURL: 'https://api.minimax.chat/v1',
+    defaultModel: 'abab6.5s-chat',
+    description: '中等价位，对话能力不错',
+  },
+  {
+    type: 'openai-compatible',
+    group: 'cn',
+    name: '百川智能',
+    baseURL: 'https://api.baichuan-ai.com/v1',
+    defaultModel: 'Baichuan4',
+    description: 'Baichuan4 / Baichuan3 系列',
+  },
+
+  // ─── 🌎 国外 ─────────────────────────────────────
+  {
+    type: 'openai-compatible',
+    group: 'global',
     name: 'OpenAI',
     baseURL: 'https://api.openai.com/v1',
     defaultModel: 'gpt-4o-mini',
     defaultEmbeddingModel: 'text-embedding-3-small',
-    description: '官方；gpt-4o-mini 便宜，gpt-4o 强',
+    description: '官方；gpt-4o-mini 便宜 / gpt-4o 强 / o1 推理（国内需代理）',
   },
   {
     type: 'openai-compatible',
-    name: 'Moonshot Kimi',
-    baseURL: 'https://api.moonshot.cn/v1',
-    defaultModel: 'moonshot-v1-8k',
-    description: 'Kimi；长上下文友好',
+    group: 'global',
+    name: 'Azure OpenAI',
+    baseURL: 'https://YOUR_RESOURCE.openai.azure.com/openai/deployments/YOUR_DEPLOYMENT',
+    defaultModel: 'gpt-4o-mini',
+    defaultEmbeddingModel: 'text-embedding-3-small',
+    description: '企业首选；baseURL 需替换成你的 resource + deployment 名',
   },
   {
     type: 'openai-compatible',
-    name: '智谱 GLM',
-    baseURL: 'https://open.bigmodel.cn/api/paas/v4',
-    defaultModel: 'glm-4-flash',
-    description: '智谱；glm-4-flash 免费 / glm-4 付费',
+    group: 'global',
+    name: 'Groq',
+    baseURL: 'https://api.groq.com/openai/v1',
+    defaultModel: 'llama-3.3-70b-versatile',
+    description: '⚡ 超快推理 500+ tokens/s；有免费额度；仅 OSS 模型',
   },
   {
     type: 'openai-compatible',
+    group: 'global',
+    name: 'Cerebras',
+    baseURL: 'https://api.cerebras.ai/v1',
+    defaultModel: 'llama-3.3-70b',
+    description: '⚡ 超快推理；llama / qwen 系列',
+  },
+  {
+    type: 'openai-compatible',
+    group: 'global',
+    name: 'Together AI',
+    baseURL: 'https://api.together.xyz/v1',
+    defaultModel: 'meta-llama/Llama-3.3-70B-Instruct-Turbo',
+    defaultEmbeddingModel: 'BAAI/bge-large-en-v1.5',
+    description: '海外聚合；几十种 OSS 模型；支持 embedding',
+  },
+
+  // ─── 🔄 聚合 / 中转 ──────────────────────────────
+  {
+    type: 'openai-compatible',
+    group: 'aggregator',
     name: 'OpenRouter',
     baseURL: 'https://openrouter.ai/api/v1',
     defaultModel: 'anthropic/claude-3.5-sonnet',
-    description: '聚合；可访问 Claude / Gemini / Llama 等几十种模型',
+    description: '聚合；可访问 Claude / Gemini / GPT / Llama 等几十种模型（一个 key 通吃）',
   },
   {
     type: 'openai-compatible',
-    name: 'Ollama (本地)',
+    group: 'aggregator',
+    name: 'SiliconFlow 硅基流动',
+    baseURL: 'https://api.siliconflow.cn/v1',
+    defaultModel: 'Qwen/Qwen2.5-72B-Instruct',
+    defaultEmbeddingModel: 'BAAI/bge-m3',
+    description: '国内聚合，几十种模型；有免费额度；支持 embedding（BGE-m3 强）',
+  },
+
+  // ─── 💻 本地部署 ──────────────────────────────────
+  {
+    type: 'openai-compatible',
+    group: 'local',
+    name: 'Ollama',
     baseURL: 'http://localhost:11434/v1',
     defaultModel: 'llama3.2',
-    description: '本地部署；apiKey 留空',
+    defaultEmbeddingModel: 'nomic-embed-text',
+    description: '本地部署，最易上手；apiKey 留空；先 ollama pull <model>',
   },
   {
+    type: 'openai-compatible',
+    group: 'local',
+    name: 'LM Studio',
+    baseURL: 'http://localhost:1234/v1',
+    defaultModel: 'local-model',
+    description: 'GUI 友好的本地服务；apiKey 留空；先在 LM Studio 启动 server',
+  },
+  {
+    type: 'openai-compatible',
+    group: 'local',
+    name: 'vLLM (自部署)',
+    baseURL: 'http://YOUR_HOST:8000/v1',
+    defaultModel: 'meta-llama/Llama-3.3-70B-Instruct',
+    description: '高性能服务级部署；baseURL 改成你的 host',
+  },
+
+  // ─── 🧪 实验性 ────────────────────────────────────
+  {
     type: 'window-ai',
+    group: 'experimental',
     name: 'Chrome 内置 AI',
     baseURL: '',
     defaultModel: 'gemini-nano',

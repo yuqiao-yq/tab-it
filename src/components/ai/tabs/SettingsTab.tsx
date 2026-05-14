@@ -1,5 +1,10 @@
-import { useState } from 'react'
-import { useAISettingsStore, PROVIDER_PRESETS } from '../../../ai/useAISettingsStore'
+import { useMemo, useState } from 'react'
+import {
+  useAISettingsStore,
+  PROVIDER_PRESETS,
+  PROVIDER_GROUP_LABEL,
+  type ProviderGroup,
+} from '../../../ai/useAISettingsStore'
 import { testConnection } from '../../../ai/manager'
 import type { AIProviderConfig } from '../../../ai/types'
 import { isAIConfigured } from '../../../ai/types'
@@ -344,6 +349,19 @@ function AddProviderForm({
   const [apiKey, setApiKey] = useState('')
   const [model, setModel] = useState(preset.defaultModel)
 
+  // 按 group 重新组织预设，便于 select 用 optgroup 分组渲染
+  const presetsByGroup = useMemo(() => {
+    const order: ProviderGroup[] = ['cn', 'global', 'aggregator', 'local', 'experimental']
+    const groups = order.map((g) => ({
+      group: g,
+      label: PROVIDER_GROUP_LABEL[g],
+      items: PROVIDER_PRESETS.map((p, i) => ({ p, i })).filter(
+        ({ p }) => p.group === g,
+      ),
+    }))
+    return groups.filter((g) => g.items.length > 0)
+  }, [])
+
   // 切预设时自动同步表单
   const switchPreset = (i: number) => {
     setPresetIdx(i)
@@ -353,13 +371,16 @@ function AddProviderForm({
     setModel(p.defaultModel)
   }
 
+  // 不需要 apiKey 的本地 / 自部署服务（启发式：默认 baseURL 含 localhost / 127 / YOUR_HOST）
+  const isLocalLike =
+    /localhost|127\.0\.0\.1|YOUR_HOST|YOUR_RESOURCE/i.test(preset.baseURL)
+
   const canAdd =
     name.trim().length > 0 &&
     model.trim().length > 0 &&
     (preset.type === 'window-ai' ||
       (baseURL.trim().length > 0 &&
-        // Ollama 不需要 key；其他主流服务需要
-        (preset.name.startsWith('Ollama') || apiKey.trim().length > 0)))
+        (isLocalLike || apiKey.trim().length > 0)))
 
   const handleAdd = () => {
     if (!canAdd) return
@@ -411,12 +432,20 @@ function AddProviderForm({
             'outline-none focus:border-brand focus:ring-1 focus:ring-brand/30',
           )}
         >
-          {PROVIDER_PRESETS.map((p, i) => (
-            <option key={p.name} value={i}>
-              {p.name} — {p.description}
-            </option>
+          {presetsByGroup.map((g) => (
+            <optgroup key={g.group} label={g.label}>
+              {g.items.map(({ p, i }) => (
+                <option key={p.name} value={i}>
+                  {p.name}
+                </option>
+              ))}
+            </optgroup>
           ))}
         </select>
+        {/* 选定预设的描述 */}
+        <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+          {preset.description}
+        </p>
       </div>
 
       <Field label="名称" value={name} onChange={setName} />
@@ -430,9 +459,7 @@ function AddProviderForm({
           onChange={setApiKey}
           mono
           type="password"
-          placeholder={
-            preset.name.startsWith('Ollama') ? '本地服务可留空' : 'sk-...'
-          }
+          placeholder={isLocalLike ? '本地服务可留空' : 'sk-...'}
         />
       )}
       <Field label="模型" value={model} onChange={setModel} mono />
