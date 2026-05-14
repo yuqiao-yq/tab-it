@@ -78,6 +78,7 @@ export function AIPanelTabs() {
         ariaLabel="新建标签"
         align="left"
         menuWidth={140}
+        menuZIndex={10200}
         items={(['chat', 'organize', 'labels', 'settings'] as AITabType[]).map(
           (type) => ({
             key: type,

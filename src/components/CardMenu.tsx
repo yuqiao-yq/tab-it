@@ -25,6 +25,11 @@ interface Props {
   menuWidth?: number
   /** 触发器无障碍 label */
   ariaLabel?: string
+  /**
+   * 菜单 portal 的 z-index，默认 9999。
+   * 浮窗（z-[10100]）等高 z 容器内调用时需传更高值，否则菜单弹出会被遮挡。
+   */
+  menuZIndex?: number
 }
 
 const VIEWPORT_PAD = 8
@@ -45,6 +50,7 @@ export function CardMenu({
   align = 'right',
   menuWidth = 140,
   ariaLabel = '更多操作',
+  menuZIndex = 9999,
 }: Props) {
   const [open, setOpen] = useState(false)
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
@@ -146,9 +152,14 @@ export function CardMenu({
       onClick={(e) => e.stopPropagation()}
       onPointerDown={(e) => e.stopPropagation()}
       onMouseDown={(e) => e.stopPropagation()}
-      style={{ top: pos.top, left: pos.left, width: menuWidth }}
+      style={{
+        top: pos.top,
+        left: pos.left,
+        width: menuWidth,
+        zIndex: menuZIndex,
+      }}
       className={cn(
-        'fixed z-[9999] py-1 rounded-md',
+        'fixed py-1 rounded-md',
         'bg-white dark:bg-slate-800',
         'border border-slate-200 dark:border-slate-700',
         'shadow-lg',
