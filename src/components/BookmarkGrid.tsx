@@ -31,27 +31,100 @@ export function BookmarkGrid() {
   // 搜索模式：全库搜索书签（不显示文件夹）
   const isSearching = keyword.trim().length > 0
 
-  // 当前层的搜索结果
-  const searchResultCards = useMemo(() => {
-    if (!isSearching) return []
+  /**
+   * 搜索结果：先按关键字匹配命中所有 cards，再按 URL（小写）去重展示。
+   *
+   * 历史问题：浏览器导入时同一站点（如 google.com）通常会出现在
+   * 「书签栏 / 收藏 / 最近」等多个文件夹中。原始实现直接把所有匹配
+   * 平铺渲染，用户输入两个字母（如 "go"）会看到一长串"重复"卡片。
+   *
+   * 现在：
+   * - 按 url 分组，每组只保留 updatedAt 最大者作为代表（认为它是最新维护的版本）
+   * - 同时收集副本所在的所有分类路径，传给卡片以 chip + tooltip 展示
+   * - 顶部增加结果统计，让用户知道「N 条独立结果（原始命中 M 条）」
+   */
+  const searchResult = useMemo(() => {
+    if (!isSearching) return { items: [], rawCount: 0 }
     const kw = keyword.trim().toLowerCase()
-    return allCards
-      .filter(
-        (c) =>
-          c.title.toLowerCase().includes(kw) ||
-          c.url.toLowerCase().includes(kw)
-      )
-      .sort((a, b) => a.order - b.order)
-  }, [allCards, keyword, isSearching])
+    const matched = allCards.filter(
+      (c) =>
+        c.title.toLowerCase().includes(kw) ||
+        c.url.toLowerCase().includes(kw),
+    )
+    // 分类路径快查表
+    const catMap = new Map(allCategories.map((c) => [c.id, c]))
+    const pathOf = (catId: string): string => {
+      const parts: string[] = []
+      let cur = catMap.get(catId)
+      while (cur) {
+        parts.unshift(cur.name)
+        cur = cur.parentId ? catMap.get(cur.parentId) : undefined
+      }
+      return parts.join(' / ') || '(未分类)'
+    }
+    // 按 url 分组
+    const byUrl = new Map<string, typeof matched>()
+    for (const card of matched) {
+      const key = (card.url || '').toLowerCase().trim()
+      const list = byUrl.get(key) ?? []
+      list.push(card)
+      byUrl.set(key, list)
+    }
+    // 每组取代表 + 收集副本分类
+    const items = Array.from(byUrl.values())
+      .map((group) => {
+        // 代表：updatedAt 最大；并列时取 order 最小
+        const sorted = [...group].sort((a, b) => {
+          if (b.updatedAt !== a.updatedAt) return b.updatedAt - a.updatedAt
+          return a.order - b.order
+        })
+        const rep = sorted[0]
+        const others = sorted.slice(1)
+        return {
+          card: rep,
+          categoryPath: pathOf(rep.categoryId),
+          dupCount: others.length,
+          // 其他副本所在分类（去重，避免同一分类多个文案重复）
+          dupCategoryPaths: Array.from(
+            new Set(others.map((c) => pathOf(c.categoryId))),
+          ),
+        }
+      })
+      .sort((a, b) => b.card.updatedAt - a.card.updatedAt)
+    return { items, rawCount: matched.length }
+  }, [allCards, allCategories, keyword, isSearching])
 
   // 搜索模式：扁平展示
   if (isSearching) {
+    const { items, rawCount } = searchResult
     return (
-      <div className={GRID_COLS}>
-        {searchResultCards.map((card) => (
-          <BookmarkCardItem key={card.id} card={card} />
-        ))}
-        {searchResultCards.length === 0 && (
+      <div>
+        {/* 顶部统计：让用户感知"重复被合并了" */}
+        {items.length > 0 && (
+          <div className="text-xs text-slate-400 mb-3 px-1">
+            找到 <span className="tabular-nums text-slate-600 dark:text-slate-300">{items.length}</span>{' '}
+            条独立结果
+            {rawCount !== items.length && (
+              <>
+                {' '}
+                <span className="text-slate-400/80">
+                  · 原始命中 {rawCount} 条，已按 URL 合并
+                </span>
+              </>
+            )}
+          </div>
+        )}
+        <div className={GRID_COLS}>
+          {items.map(({ card, categoryPath, dupCount, dupCategoryPaths }) => (
+            <BookmarkCardItem
+              key={card.id}
+              card={card}
+              draggable={false}
+              searchMeta={{ categoryPath, dupCount, dupCategoryPaths }}
+            />
+          ))}
+        </div>
+        {items.length === 0 && (
           <div className="col-span-full text-center py-16 text-slate-400">
             没有找到匹配的书签
           </div>

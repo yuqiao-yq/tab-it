@@ -17,6 +17,21 @@ interface Props {
    * "最近使用"模块需要传 false：顺序由 openedAt 决定，不允许用户手动排序。
    */
   draggable?: boolean
+  /**
+   * 仅在「全库搜索」结果中传入的额外元信息。
+   * - 让用户在搜索结果里清晰看到「这条来自哪个分类」
+   * - 同一 URL 在多个分类下都有副本时，提示「+ N 个副本所在分类」
+   */
+  searchMeta?: SearchMeta
+}
+
+export interface SearchMeta {
+  /** 该卡片所在分类的完整路径（如 "工作 / 收藏 / 导航"） */
+  categoryPath: string
+  /** 同一 URL 还存在于其他分类下的副本数（去重前 - 1） */
+  dupCount: number
+  /** 副本所在分类路径列表（去重，按出现顺序） */
+  dupCategoryPaths: string[]
 }
 
 /**
@@ -32,7 +47,11 @@ interface Props {
  *   - 已有备注 → 直接展示备注文本（最多 2 行），点击进入编辑
  *   - 无备注  → 展示低调的「+ 添加备注」占位按钮
  */
-export function BookmarkCardItem({ card, draggable = true }: Props) {
+export function BookmarkCardItem({
+  card,
+  draggable = true,
+  searchMeta,
+}: Props) {
   const removeCard = useBookmarkStore((s) => s.removeCard)
   const updateCard = useBookmarkStore((s) => s.updateCard)
   const recordRecentOpen = useBookmarkStore((s) => s.recordRecentOpen)
@@ -287,7 +306,7 @@ export function BookmarkCardItem({ card, draggable = true }: Props) {
         )}
       </div>
 
-      {/* 底部区：编辑模式 → 保存/取消；非编辑 → 备注 */}
+      {/* 底部区：编辑 → 保存取消；搜索模式 → 分类来源 chip；常态 → 备注 */}
       <div className="mt-auto">
         {editing ? (
           <div className="flex items-center justify-end gap-1.5 pt-1">
@@ -313,6 +332,8 @@ export function BookmarkCardItem({ card, draggable = true }: Props) {
               )}
             >保存</button>
           </div>
+        ) : searchMeta ? (
+          <SearchSourceChip meta={searchMeta} />
         ) : card.description ? (
           <button
             type="button"
@@ -356,6 +377,44 @@ export function BookmarkCardItem({ card, draggable = true }: Props) {
           </button>
         )}
       </div>
+    </div>
+  )
+}
+
+/**
+ * 搜索结果卡片底部的「分类来源」小标。
+ * - 单一来源：📂 工作 / 收藏 / 导航
+ * - 有副本：右侧追加「+N」徽标，title 列出所有副本分类，
+ *   让用户清楚「这个 URL 在 N 个分类下都存了，看到的只是其中一份」
+ */
+function SearchSourceChip({ meta }: { meta: SearchMeta }) {
+  const tooltip =
+    meta.dupCount > 0
+      ? `分类：${meta.categoryPath}\n该 URL 还存在于 ${meta.dupCount} 个其他分类：\n  • ${meta.dupCategoryPaths.join('\n  • ')}`
+      : `分类：${meta.categoryPath}`
+  return (
+    <div
+      className={cn(
+        'w-full flex items-center gap-1.5 text-[11px] leading-none',
+        'text-slate-500 dark:text-slate-400',
+        'rounded px-1.5 py-1 -mx-1.5',
+      )}
+      title={tooltip}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <span aria-hidden>📂</span>
+      <span className="flex-1 min-w-0 truncate">{meta.categoryPath}</span>
+      {meta.dupCount > 0 && (
+        <span
+          className={cn(
+            'shrink-0 inline-flex items-center justify-center px-1 h-4 rounded',
+            'text-[10px] font-medium tabular-nums',
+            'bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300',
+          )}
+        >
+          +{meta.dupCount}
+        </span>
+      )}
     </div>
   )
 }
