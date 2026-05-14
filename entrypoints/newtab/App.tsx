@@ -9,6 +9,7 @@ import { toast } from '../../src/stores/useToastStore'
 import { AIFAB } from '../../src/components/ai/AIFAB'
 import { AIPanel } from '../../src/components/ai/AIPanel'
 import { useAIPanelStore } from '../../src/ai/panel/usePanelStore'
+import { useAISettingsStore } from '../../src/ai/useAISettingsStore'
 
 export default function App() {
   const init = useBookmarkStore((s) => s.init)
@@ -26,11 +27,13 @@ export default function App() {
   const initPanel = useAIPanelStore((s) => s.init)
   const togglePanel = useAIPanelStore((s) => s.toggle)
   const clampPanelToViewport = useAIPanelStore((s) => s.clampToViewport)
+  const initAISettings = useAISettingsStore((s) => s.init)
 
   useEffect(() => {
     void init()
     void initPanel()
-  }, [init, initPanel])
+    void initAISettings()
+  }, [init, initPanel, initAISettings])
 
   // Cmd/Ctrl + J 全局快捷键唤起 / 隐藏浮窗（与 Notion AI 对齐）
   useEffect(() => {

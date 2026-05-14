@@ -1,15 +1,10 @@
 import { createPortal } from 'react-dom'
 import { useAIPanelStore } from '../../ai/panel/usePanelStore'
-import { FAB_OFFSET, FAB_SIZE } from '../../ai/types'
+import { useAISettingsStore } from '../../ai/useAISettingsStore'
+import { FAB_OFFSET, FAB_SIZE, isAIConfigured } from '../../ai/types'
 import { cn } from '../../utils/cn'
 
 interface Props {
-  /**
-   * 是否已配置 AI（决定 FAB 是否亮起）。
-   * V1.0 浮窗壳子阶段还没有 AI 设置，先固定为 false（灰色）。
-   * 等 4.1 任务接通 AI Settings store 后，传入真实的「至少有一个可用 Provider」判断。
-   */
-  configured?: boolean
   /**
    * 是否处于 AI 思考中（呼吸光晕）。
    * V1.0 阶段固定 false；具体 AI 任务执行时由 service 层置位。
@@ -32,9 +27,12 @@ interface Props {
  *
  * 浮窗展开 / 最小化时，FAB 隐藏（避免双入口）。
  */
-export function AIFAB({ configured = false, thinking = false, hasNew = false }: Props) {
+export function AIFAB({ thinking = false, hasNew = false }: Props) {
   const visible = useAIPanelStore((s) => s.visible)
   const open = useAIPanelStore((s) => s.open)
+  // 实时联动 AI 设置：providers 增加 / 启用切换都会自动反映到 FAB 颜色
+  const settings = useAISettingsStore()
+  const configured = isAIConfigured(settings)
 
   // 浮窗已打开（包括最小化）时不显示 FAB
   if (visible) return null

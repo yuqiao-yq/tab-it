@@ -5,6 +5,131 @@
  * 子模块自己的内部类型放到对应文件里。
  */
 
+// ─── Provider 抽象 ───────────────────────────────────────
+
+/**
+ * Provider 类型。
+ * - openai-compatible: OpenAI / DeepSeek / Azure / 智谱 / Moonshot / Ollama / vLLM / Together
+ *                      / Groq / OpenRouter / SiliconFlow 等都走这个 adapter
+ * - window-ai:        Chrome 138+ 内置 Gemini Nano（完全本地，零成本零隐私）
+ * - ollama:           预留；当前用 openai-compatible 也能覆盖
+ */
+export type ProviderType = 'openai-compatible' | 'window-ai' | 'ollama'
+
+/**
+ * 用户配置的一个 Provider。
+ * apiKey 仅存 chrome.storage.local，永不出包（不进 sync 也不进 export json）
+ */
+export interface AIProviderConfig {
+  id: string
+  name: string
+  type: ProviderType
+  baseURL?: string
+  apiKey?: string
+  model: string
+  embeddingModel?: string
+}
+
+/** 任务 → Provider id 的路由配置 */
+export interface AIRouting {
+  chat: string
+  organize: string
+  embedding: string
+}
+
+export interface AIPrivacy {
+  anonymousMode: boolean
+  allowContentCrawl: boolean
+  showCostEstimate: boolean
+}
+
+/**
+ * 整体 AI 设置。
+ * - enabled=false 时所有 AI UI 入口都不工作
+ * - providers 至少 1 个且 routing 指向有效 id 时，才算"已配置"
+ */
+export interface AISettings {
+  enabled: boolean
+  providers: AIProviderConfig[]
+  routing: Partial<AIRouting>
+  privacy: AIPrivacy
+  preferLocal: boolean
+}
+
+// ─── Chat 接口 ───────────────────────────────────────────
+
+export type ChatRole = 'system' | 'user' | 'assistant'
+
+export interface ChatMessage {
+  role: ChatRole
+  content: string
+}
+
+export interface ChatOptions {
+  messages: ChatMessage[]
+  temperature?: number
+  maxTokens?: number
+  responseFormat?: 'text' | 'json'
+  signal?: AbortSignal
+}
+
+export interface ChatUsage {
+  promptTokens: number
+  completionTokens: number
+}
+
+export interface ChatResponse {
+  text: string
+  usage?: ChatUsage
+  model?: string
+}
+
+export interface ChatChunk {
+  delta: string
+  done?: boolean
+  usage?: ChatUsage
+}
+
+// ─── Provider 接口 ──────────────────────────────────────
+
+export interface AIProvider {
+  id: string
+  type: ProviderType
+
+  chat(opts: ChatOptions): Promise<ChatResponse>
+  chatStream?(opts: ChatOptions): AsyncIterable<ChatChunk>
+  embedding?(input: string[]): Promise<number[][]>
+
+  testConnection(): Promise<{ ok: boolean; message?: string; latencyMs?: number }>
+}
+
+// ─── 默认值 + 工具 ──────────────────────────────────────
+
+export const DEFAULT_AI_SETTINGS: AISettings = {
+  enabled: false,
+  providers: [],
+  routing: {},
+  privacy: {
+    anonymousMode: true,
+    allowContentCrawl: false,
+    showCostEstimate: true,
+  },
+  preferLocal: false,
+}
+
+/**
+ * 「是否已配置可用 AI」判定：
+ * 至少有一个 provider，且 chat routing 指向了一个真实存在的 provider。
+ */
+export function isAIConfigured(s: AISettings): boolean {
+  if (!s.enabled) return false
+  if (s.providers.length === 0) return false
+  const chatId = s.routing.chat
+  if (!chatId) return false
+  return s.providers.some((p) => p.id === chatId)
+}
+
+
 // ─── 浮窗 Tab 类型 ──────────────────────────────────────
 
 /**
