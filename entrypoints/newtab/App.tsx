@@ -6,6 +6,9 @@ import { Breadcrumb } from '../../src/components/Breadcrumb'
 import { Topbar } from '../../src/components/Topbar'
 import { ToastContainer } from '../../src/components/ToastContainer'
 import { toast } from '../../src/stores/useToastStore'
+import { AIFAB } from '../../src/components/ai/AIFAB'
+import { AIPanel } from '../../src/components/ai/AIPanel'
+import { useAIPanelStore } from '../../src/ai/panel/usePanelStore'
 
 export default function App() {
   const init = useBookmarkStore((s) => s.init)
@@ -19,9 +22,39 @@ export default function App() {
   const wallpaper = useBookmarkStore((s) => s.settings.wallpaper)
   const fontColor = useBookmarkStore((s) => s.settings.fontColor)
 
+  // ─── AI 浮窗：启动时恢复持久化状态、注册全局快捷键、监听视口变化 ─
+  const initPanel = useAIPanelStore((s) => s.init)
+  const togglePanel = useAIPanelStore((s) => s.toggle)
+  const clampPanelToViewport = useAIPanelStore((s) => s.clampToViewport)
+
   useEffect(() => {
     void init()
-  }, [init])
+    void initPanel()
+  }, [init, initPanel])
+
+  // Cmd/Ctrl + J 全局快捷键唤起 / 隐藏浮窗（与 Notion AI 对齐）
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const isMac = navigator.platform.toLowerCase().includes('mac')
+      const cmd = isMac ? e.metaKey : e.ctrlKey
+      if (cmd && (e.key === 'j' || e.key === 'J')) {
+        // 输入框聚焦时不抢，避免影响搜索
+        const tag = (e.target as HTMLElement)?.tagName?.toLowerCase()
+        if (tag === 'input' || tag === 'textarea') return
+        e.preventDefault()
+        togglePanel()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [togglePanel])
+
+  // 视口变化时把浮窗吸附回来，避免"看不到"
+  useEffect(() => {
+    const onResize = () => clampPanelToViewport()
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [clampPanelToViewport])
 
   // ─── 主题（明亮 / 黑暗 / 跟随系统） ────────────────
   // Tailwind darkMode='class' → 通过 html.dark 控制
@@ -96,6 +129,9 @@ export default function App() {
   return (
     <div className="h-full w-full flex flex-col">
       <ToastContainer />
+      {/* AI 浮窗与 FAB 两者互斥：浮窗显示时 FAB 隐藏（在 AIFAB 内部判断） */}
+      <AIFAB />
+      <AIPanel />
       <Topbar />
       <div className="flex-1 flex min-h-0">
         <CategorySidebar />
