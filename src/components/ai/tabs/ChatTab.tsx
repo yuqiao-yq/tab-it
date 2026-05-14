@@ -143,18 +143,42 @@ export function ChatTab({ tabId }: { tabId: string }) {
     return <NoAINotice />
   }
 
+  // 当前 chat 路由对应的 Provider（用于 header 展示模型名 + 中文警告判断）
+  const currentChatProvider =
+    settings.providers.find(
+      (p) => p.id === (settings.routing.chat ?? settings.providers[0]?.id),
+    ) ?? null
+  const isWindowAI = currentChatProvider?.type === 'window-ai'
+  // 远程 Provider 列表（供"快速切换"用）
+  const remoteProviders = settings.providers.filter((p) => p.type !== 'window-ai')
+  const switchToRemote = (providerId: string) => {
+    settings.setRoute('chat', providerId)
+    toast.success(
+      '已切换 chat 路由',
+      settings.providers.find((p) => p.id === providerId)?.name ?? '',
+    )
+  }
+
   return (
     <div className="flex flex-col h-full">
       {/* 顶部：当前 Provider + 清空 */}
       <ChatHeader
-        modelName={
-          settings.providers.find(
-            (p) => p.id === (settings.routing.chat ?? settings.providers[0]?.id),
-          )?.model
-        }
+        modelName={currentChatProvider?.model}
         canClear={messages.length > 0}
         onClear={handleClear}
       />
+
+      {/* 中文场景的语言能力警告：Chrome Gemini Nano 仅 en/es/ja，
+          中文输入会让模型按英文 token 空间瞎拼出乱码 */}
+      {isWindowAI && (
+        <ChineseLangWarning
+          remoteProviders={remoteProviders.map((p) => ({
+            id: p.id,
+            label: `${p.name} (${p.model})`,
+          }))}
+          onSwitch={switchToRemote}
+        />
+      )}
 
       {/* 中间：消息流 */}
       <div ref={scrollRef} className="flex-1 overflow-auto px-3 py-3 space-y-3">
@@ -281,6 +305,73 @@ function ChatHeader({
       >
         清空
       </button>
+    </div>
+  )
+}
+
+function ChineseLangWarning({
+  remoteProviders,
+  onSwitch,
+}: {
+  remoteProviders: Array<{ id: string; label: string }>
+  onSwitch: (providerId: string) => void
+}) {
+  const addTab = useAIPanelStore((s) => s.addTab)
+  return (
+    <div
+      className={cn(
+        'shrink-0 px-3 py-2 text-[11px] leading-relaxed',
+        'bg-amber-50 dark:bg-amber-500/10',
+        'text-amber-800 dark:text-amber-300',
+        'border-b border-amber-200 dark:border-amber-800/40',
+      )}
+    >
+      <div className="flex items-start gap-2">
+        <span aria-hidden>⚠️</span>
+        <div className="flex-1">
+          <strong>Chrome 内置 AI 不支持中文输出</strong>
+          ，仅支持 en / es / ja。中文提问会得到乱码（token 在英文空间瞎拼）。
+          {remoteProviders.length > 0 ? (
+            <span> 建议立即切换到远程 Provider：</span>
+          ) : (
+            <span> 请添加一个远程 Provider（DeepSeek / OpenAI / 智谱等）。</span>
+          )}
+        </div>
+      </div>
+      <div className="mt-1.5 ml-5 flex flex-wrap items-center gap-1.5">
+        {remoteProviders.length > 0 ? (
+          remoteProviders.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => onSwitch(p.id)}
+              className={cn(
+                'inline-flex items-center gap-1 px-2 py-0.5 rounded',
+                'bg-amber-200/70 dark:bg-amber-500/20',
+                'text-amber-900 dark:text-amber-200',
+                'hover:bg-amber-300 dark:hover:bg-amber-500/30 transition-colors',
+                'font-medium',
+              )}
+            >
+              切换到 {p.label}
+            </button>
+          ))
+        ) : (
+          <button
+            type="button"
+            onClick={() => addTab('settings')}
+            className={cn(
+              'inline-flex items-center gap-1 px-2 py-0.5 rounded',
+              'bg-amber-200/70 dark:bg-amber-500/20',
+              'text-amber-900 dark:text-amber-200',
+              'hover:bg-amber-300 dark:hover:bg-amber-500/30 transition-colors',
+              'font-medium',
+            )}
+          >
+            前往设置添加 Provider
+          </button>
+        )}
+      </div>
     </div>
   )
 }
