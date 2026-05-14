@@ -219,6 +219,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     name: 'Chrome 内置 AI',
     baseURL: '',
     defaultModel: 'gemini-nano',
-    description: 'Chrome 138+ 完全本地，零成本零隐私（功能较弱）',
+    description:
+      'Chrome 138+ 本地 Gemini Nano，零成本零隐私。⚠️ 当前仅支持 en/es/ja，中文场景不推荐',
   },
 ]

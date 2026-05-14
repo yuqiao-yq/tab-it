@@ -61,6 +61,10 @@ function detectLMApi(): LMApi | null {
       availability?: () => Promise<Availability>
       create?: (opts?: {
         initialPrompts?: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>
+        /** Chrome 138+ 新规范，必传以避免 "No output language" 警告 */
+        expectedOutputs?: Array<{ type: 'text'; languages: string[] }>
+        /** 部分中间版本的兼容字段 */
+        outputLanguage?: string
       }) => Promise<SessionLike>
     }
     ai?: {
@@ -81,10 +85,19 @@ function detectLMApi(): LMApi | null {
       source: 'LanguageModel (Chrome 138+)',
       check: () => g.LanguageModel!.availability!(),
       create: async ({ systemPrompt }) => {
+        // Chrome 内置 LanguageModel 当前仅支持 en / es / ja 输出，
+        // 不显式指定会触发 "No output language was specified" 警告。
+        // 我们的主要用法是英文 / 域名 / 短词，统一用 'en'。
+        // 注意：Gemini Nano 不擅长中文输出，**这也是一个产品限制**，
+        // 中文场景建议用户走远程 Provider（DeepSeek / OpenAI 等）。
         return g.LanguageModel!.create!({
           initialPrompts: systemPrompt
             ? [{ role: 'system', content: systemPrompt }]
             : undefined,
+          // 新规范字段（Chrome 138+）
+          expectedOutputs: [{ type: 'text', languages: ['en'] }],
+          // 兼容部分中间版本的旧字段
+          outputLanguage: 'en',
         })
       },
     }
