@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useBookmarkStore } from '../../../stores/useBookmarkStore'
 import { useAISettingsStore } from '../../../ai/useAISettingsStore'
 import { useOrganizeStore } from '../../../ai/services/useOrganizeStore'
+import { usePassiveSuggest } from '../../../ai/services/usePassiveSuggest'
 import {
   estimateCostCny,
   estimateTokens,
@@ -88,6 +89,9 @@ function ConfigStage() {
 
   return (
     <div className="p-3 space-y-4 text-sm">
+      {/* 被动整理建议横幅（§5.2） */}
+      <PassiveSuggestBanner />
+
       <Notice>
         AI 会读取所选范围内书签的「标题 + 域名」（不读完整 URL，更不读网页内容），
         给出一份分类建议供你预览。预览时可以单条接受或拒绝，应用后还有 60s 撤销窗口。
@@ -664,6 +668,45 @@ function Notice({ children }: { children: React.ReactNode }) {
   return (
     <div className="rounded-md px-3 py-2 text-[11px] text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 leading-relaxed">
       {children}
+    </div>
+  )
+}
+
+/**
+ * 被动建议横幅（§5.2）
+ * - 仅在 hook 报告 shouldShow 时显示
+ * - 用户点 ✕ → dismiss（推迟 7 天）
+ * - 文案聚焦"行动召唤"：让用户感觉这是省事建议而不是打扰
+ */
+function PassiveSuggestBanner() {
+  const { shouldShow, newCount, dismiss } = usePassiveSuggest()
+  if (!shouldShow) return null
+  return (
+    <div
+      className={cn(
+        'rounded-md px-3 py-2 text-xs flex items-start gap-2',
+        'bg-amber-50 dark:bg-amber-500/10',
+        'border border-amber-200 dark:border-amber-500/30',
+        'text-amber-800 dark:text-amber-200',
+      )}
+    >
+      <span aria-hidden className="text-base leading-none mt-0.5">💡</span>
+      <div className="flex-1 leading-relaxed">
+        距上次整理已新增 <span className="font-semibold tabular-nums">{newCount}</span>{' '}
+        条书签。要不要让 AI 顺手按主题归归类？已为你预选「顶层未分类项」范围。
+      </div>
+      <button
+        type="button"
+        onClick={() => void dismiss()}
+        className={cn(
+          'shrink-0 w-5 h-5 inline-flex items-center justify-center rounded text-xs',
+          'text-amber-500 hover:text-amber-700 hover:bg-amber-100 dark:hover:bg-amber-500/20',
+        )}
+        title="本周不再提示"
+        aria-label="本周不再提示"
+      >
+        ✕
+      </button>
     </div>
   )
 }

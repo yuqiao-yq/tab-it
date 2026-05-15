@@ -29,6 +29,8 @@ interface AISettingsStore extends AISettings {
   // 整体开关
   setEnabled: (v: boolean) => void
   setPreferLocal: (v: boolean) => void
+  /** 被动整理建议（§5.2）总开关 */
+  setPassiveSuggest: (v: boolean) => void
 
   // 隐私
   patchPrivacy: (patch: Partial<AISettings['privacy']>) => void
@@ -58,6 +60,11 @@ export const useAISettingsStore = create<AISettingsStore>((set, get) => ({
           routing: raw.routing ?? {},
           privacy: { ...DEFAULT_AI_SETTINGS.privacy, ...(raw.privacy ?? {}) },
           preferLocal: !!raw.preferLocal,
+          // 老版本数据可能没有这个字段；缺省时用默认值（开启）
+          passiveSuggest:
+            typeof raw.passiveSuggest === 'boolean'
+              ? raw.passiveSuggest
+              : DEFAULT_AI_SETTINGS.passiveSuggest,
         }
         set({ ...safe, hydrated: true })
       } else {
@@ -75,6 +82,11 @@ export const useAISettingsStore = create<AISettingsStore>((set, get) => ({
 
   setPreferLocal(v) {
     set({ preferLocal: v })
+    persist(get())
+  },
+
+  setPassiveSuggest(v) {
+    set({ passiveSuggest: v })
     persist(get())
   },
 
@@ -149,6 +161,7 @@ function persist(state: AISettingsStore) {
     routing: state.routing,
     privacy: state.privacy,
     preferLocal: state.preferLocal,
+    passiveSuggest: state.passiveSuggest,
   }
   if (persistTimer) clearTimeout(persistTimer)
   persistTimer = setTimeout(() => {

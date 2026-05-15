@@ -10,6 +10,8 @@ import { AIFAB } from '../../src/components/ai/AIFAB'
 import { AIPanel } from '../../src/components/ai/AIPanel'
 import { useAIPanelStore } from '../../src/ai/panel/usePanelStore'
 import { useAISettingsStore } from '../../src/ai/useAISettingsStore'
+import { usePassiveSuggest } from '../../src/ai/services/usePassiveSuggest'
+import { useOrganizeStore } from '../../src/ai/services/useOrganizeStore'
 
 export default function App() {
   const init = useBookmarkStore((s) => s.init)
@@ -26,8 +28,14 @@ export default function App() {
   // ─── AI 浮窗：启动时恢复持久化状态、注册全局快捷键、监听视口变化 ─
   const initPanel = useAIPanelStore((s) => s.init)
   const togglePanel = useAIPanelStore((s) => s.toggle)
+  const openPanel = useAIPanelStore((s) => s.open)
   const clampPanelToViewport = useAIPanelStore((s) => s.clampToViewport)
   const initAISettings = useAISettingsStore((s) => s.init)
+  const setOrganizeRange = useOrganizeStore((s) => s.setRange)
+
+  // 被动建议（§5.2）：FAB 红点 + 浮窗自动落到整理 Tab
+  const { shouldShow: hasPassiveHint, dismiss: dismissPassive } =
+    usePassiveSuggest()
 
   useEffect(() => {
     void init()
@@ -133,7 +141,16 @@ export default function App() {
     <div className="h-full w-full flex flex-col">
       <ToastContainer />
       {/* AI 浮窗与 FAB 两者互斥：浮窗显示时 FAB 隐藏（在 AIFAB 内部判断） */}
-      <AIFAB />
+      <AIFAB
+        hasNew={hasPassiveHint}
+        onSuggestClick={() => {
+          // 被动建议：预填整理范围为「未分类项」，自动打开整理 Tab
+          setOrganizeRange({ type: 'uncategorized' })
+          openPanel('organize')
+          // 进入即视为"提示已被看到"，重置 baseline 进入下一轮冷静期
+          void dismissPassive()
+        }}
+      />
       <AIPanel />
       <Topbar />
       <div className="flex-1 flex min-h-0">

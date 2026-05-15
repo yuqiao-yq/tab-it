@@ -84,6 +84,12 @@ export function SettingsTab() {
             checked={settings.preferLocal}
             onChange={settings.setPreferLocal}
           />
+          <ToggleRow
+            label="被动整理建议"
+            description="新增书签累计 ≥ 10 条 + 距上次提示 ≥ 7 天 时，FAB 红点 + 浮窗顶部横幅"
+            checked={settings.passiveSuggest}
+            onChange={settings.setPassiveSuggest}
+          />
         </div>
       </section>
 

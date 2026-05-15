@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useAIPanelStore } from '../../ai/panel/usePanelStore'
 import { useDraggable } from '../../ai/panel/useDraggable'
@@ -6,10 +6,13 @@ import { useResizable } from '../../ai/panel/useResizable'
 import {
   PANEL_DEFAULT_SIZE,
   defaultPanelPosition,
+  isAIConfigured,
   type AITabType,
   type PanelPosition,
   type PanelSize,
 } from '../../ai/types'
+import { useAISettingsStore } from '../../ai/useAISettingsStore'
+import { WindowAIProvider } from '../../ai/providers/window-ai'
 import { cn } from '../../utils/cn'
 import { AIPanelHeader } from './AIPanelHeader'
 import { AIPanelTabs } from './AIPanelTabs'
@@ -143,7 +146,7 @@ export function AIPanel() {
           )}
         </div>
 
-        {/* Footer：占位（V1 阶段先简单显示，后续放成本统计 / Provider 状态） */}
+        {/* Footer：Provider 状态 + Local/Cloud 徽标（§5.3）+ resize 手柄 */}
         <div
           data-no-drag
           className={cn(
@@ -153,7 +156,7 @@ export function AIPanel() {
             'text-[11px] text-slate-400',
           )}
         >
-          <span>未配置 AI · 在「⚙ 设置」中添加 Provider</span>
+          <FooterStatus />
           <div className="flex-1" />
           {/* Resize 手柄触发区：右下角 */}
           {!maximized && (
@@ -207,5 +210,116 @@ function TabContent({ type, tabId }: { type: AITabType; tabId: string }) {
     case 'settings':
       return <SettingsTab />
   }
+}
+
+/**
+ * Footer 状态行（V1.5 §5.3）
+ *
+ * 三种态：
+ * - 未配置 AI：灰色提示 + 引导
+ * - preferLocal=true 且 window.ai 可用：✓ Local 徽标（绿色）
+ * - preferLocal=true 但 window.ai 不可用：⚠ Local 徽标 + tooltip 解释（橙色）
+ * - 其他：☁ Cloud 徽标（默认远程）
+ *
+ * window.ai 检测异步进行；仅 mount 时拉一次（不监听 visibility 变化，
+ * 模型可用性在用户会话期间几乎不变）。
+ */
+function FooterStatus() {
+  const settings = useAISettingsStore()
+  const configured = isAIConfigured(settings)
+  const [windowAIReady, setWindowAIReady] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    void WindowAIProvider.isAvailable().then((ok) => {
+      if (!cancelled) setWindowAIReady(ok)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  if (!configured) {
+    return <span>未配置 AI · 在「⚙ 设置」中添加 Provider</span>
+  }
+
+  // 取当前 chat 任务真实指向的 provider 名（含 prefer-local 影响）
+  const chatProviderName = (() => {
+    if (settings.preferLocal && windowAIReady) {
+      const local = settings.providers.find((p) => p.type === 'window-ai')
+      if (local) return local.name
+    }
+    const id = settings.routing.chat ?? settings.providers[0]?.id
+    return settings.providers.find((p) => p.id === id)?.name ?? '(未指定)'
+  })()
+
+  if (settings.preferLocal) {
+    if (windowAIReady === null) {
+      // 检测中
+      return (
+        <>
+          <Badge tone="muted">⌛ 检测本地</Badge>
+          <span className="truncate" title={chatProviderName}>
+            {chatProviderName}
+          </span>
+        </>
+      )
+    }
+    if (windowAIReady) {
+      return (
+        <>
+          <Badge tone="ok">✓ Local</Badge>
+          <span className="truncate" title="对话任务优先走 Chrome 内置 Gemini Nano">
+            {chatProviderName}
+          </span>
+        </>
+      )
+    }
+    return (
+      <>
+        <Badge tone="warn">⚠ Local 不可用</Badge>
+        <span
+          className="truncate"
+          title="已开启「优先本地」但 Chrome 内置 AI 不可用，已自动回落到云端 Provider"
+        >
+          {chatProviderName}
+        </span>
+      </>
+    )
+  }
+
+  return (
+    <>
+      <Badge tone="cloud">☁ Cloud</Badge>
+      <span className="truncate" title={chatProviderName}>
+        {chatProviderName}
+      </span>
+    </>
+  )
+}
+
+function Badge({
+  children,
+  tone,
+}: {
+  children: React.ReactNode
+  tone: 'ok' | 'warn' | 'cloud' | 'muted'
+}) {
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center px-1.5 h-4 rounded text-[10px] font-medium leading-none shrink-0',
+        tone === 'ok'
+          ? 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300'
+          : tone === 'warn'
+            ? 'bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300'
+            : tone === 'cloud'
+              ? 'bg-sky-100 dark:bg-sky-500/20 text-sky-700 dark:text-sky-300'
+              : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400',
+      )}
+    >
+      {children}
+    </span>
+  )
 }
 

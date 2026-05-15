@@ -54,6 +54,12 @@ export interface AISettings {
   routing: Partial<AIRouting>
   privacy: AIPrivacy
   preferLocal: boolean
+  /**
+   * 被动整理建议（V1.5 §5.2）：
+   * - 当用户累计新增 ≥ 10 条 + 距上次提示 ≥ 7 天，FAB 红点 + 浮窗整理 Tab 顶部横幅
+   * - 默认开启；用户可在「⚙ 设置」一键关闭
+   */
+  passiveSuggest: boolean
 }
 
 // ─── Chat 接口 ───────────────────────────────────────────
@@ -115,6 +121,7 @@ export const DEFAULT_AI_SETTINGS: AISettings = {
     showCostEstimate: true,
   },
   preferLocal: false,
+  passiveSuggest: true,
 }
 
 /**

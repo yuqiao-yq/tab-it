@@ -11,9 +11,14 @@ interface Props {
    */
   thinking?: boolean
   /**
-   * 是否有未读的被动建议（V1.5 任务 5.2）。
+   * 是否有未读的被动建议（V1.5 §5.2）。
    */
   hasNew?: boolean
+  /**
+   * 当处于"被动建议"态时点击 FAB 的拦截回调（§5.2）。
+   * 提供后会替代默认 onClick，让外层决定打开哪个 tab、是否同步消除红点。
+   */
+  onSuggestClick?: () => void
 }
 
 /**
@@ -27,7 +32,11 @@ interface Props {
  *
  * 浮窗展开 / 最小化时，FAB 隐藏（避免双入口）。
  */
-export function AIFAB({ thinking = false, hasNew = false }: Props) {
+export function AIFAB({
+  thinking = false,
+  hasNew = false,
+  onSuggestClick,
+}: Props) {
   const visible = useAIPanelStore((s) => s.visible)
   const open = useAIPanelStore((s) => s.open)
   // 实时联动 AI 设置：providers 增加 / 启用切换都会自动反映到 FAB 颜色
@@ -42,11 +51,21 @@ export function AIFAB({ thinking = false, hasNew = false }: Props) {
     <button
       type="button"
       onClick={() => {
-        // 未配置 → 引导到 settings tab；已配置 → 默认行为
+        // 优先级：被动建议 > 未配置引导 > 默认打开
+        if (hasNew && onSuggestClick) {
+          onSuggestClick()
+          return
+        }
         if (!configured) open('settings')
         else open()
       }}
-      title={configured ? 'AI 助手 (Cmd/Ctrl+J)' : '点击配置 AI 助手'}
+      title={
+        hasNew
+          ? '检测到新书签未整理，点击让 AI 帮你'
+          : configured
+            ? 'AI 助手 (Cmd/Ctrl+J)'
+            : '点击配置 AI 助手'
+      }
       aria-label="AI 助手"
       style={{
         width: FAB_SIZE,
