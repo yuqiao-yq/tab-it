@@ -357,6 +357,31 @@ export interface PanelSize {
   height: number
 }
 
+/**
+ * 副浮窗（V3.0 §7.3 多浮窗支持）：用户从主浮窗 tab 上点「⤴ 分离」后，
+ * 把该 tab 拆出来变成独立可拖动 / 缩放 / 最小化的浮窗。
+ *
+ * 关键设计取舍：
+ * - 副浮窗"绑定"主 store 中的某个 tab.id —— 不复制 tab 数据；
+ *   tab 内容（messages / state）继续读写主 store，避免双源同步问题。
+ * - 副浮窗一个浮窗只承载一个 tab；不再有 tab bar / + 新建。
+ *   想再开 → 再用主浮窗 + 分离即可。
+ * - 主 store closeTab(tabId) 时，副 store 必须同步移除对应 SecondaryPanel
+ *   （否则副浮窗会变成"空壳"找不到内容）。
+ */
+export interface SecondaryPanel {
+  /** 浮窗自身 uuid */
+  id: string
+  /** 该浮窗渲染的 tab id（在主 useAIPanelStore.tabs 中） */
+  tabId: string
+  position?: PanelPosition
+  size?: PanelSize
+  minimized: boolean
+  /** 焦点切换时 bump；越大越靠上 */
+  zIndex: number
+  createdAt: number
+}
+
 // ─── 浮窗常量 ──────────────────────────────────────────
 
 export const PANEL_DEFAULT_SIZE: PanelSize = { width: 380, height: 520 }

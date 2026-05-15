@@ -604,16 +604,33 @@ GET  /v1/chat?q=xxx              RAG 问答（SSE 流式）
 
 ---
 
-### 任务 7.3 多浮窗支持
+### ✅ 任务 7.3 多浮窗支持
 
 **优先级**：P1  ·  **工期**：3-4 天  ·  **依赖**：4.0
 
 > V1 是「一个浮窗 + 内部多 Tab」；V3 升级为「**可以同时开多个浮窗**」
 
-- [ ] 浮窗 Tab 上的「分离」按钮：把当前 Tab 拆成独立浮窗
-- [ ] z-index 自动管理：被点击的浮窗自动置顶
-- [ ] 多浮窗位置 / 尺寸独立持久化
-- [ ] 全局任务栏（窗口顶部 / 浮窗内）显示当前所有浮窗
+- [x] AIPanelTabs 加「⤴ 分离」按钮（hover 出现，仅未分离时显示）
+- [x] z-index 自动管理：focusPanel(panelId) bump 到 zCounter+1，焦点浮窗自动置顶
+- [x] 多浮窗位置 / 尺寸独立持久化（独立 storage key `tabit:ai-secondary-panels`，
+  debounce 200ms）
+- [x] 已分离 tab 在主 tab bar 上显示 ⤴ 标记 + tooltip"已在副浮窗显示"，
+  作为"任务栏"作用 —— 不另设全局任务栏，避免视觉冗余
+
+#### 设计取舍：副浮窗 = 一窗一 tab + 共享主 store 数据
+
+实施方案不是"完全独立的多浮窗"（那要重写 panelStore 为 multi-instance + 改所有 selector），
+而是更轻的"分离视图"模型：
+
+- **数据 ownership**：副浮窗只是另一个"渲染窗口"，tab.state（messages 等）
+  仍在主 useAIPanelStore；主副浮窗看的是同一份数据，编辑实时同步
+- **一窗一 tab**：副浮窗没有 tab bar / 「+ 新建」；想开多个 → 分别从主浮窗分离
+- **没有最大化**：多个副浮窗都最大化会互相遮挡，意义不大
+- **关闭副浮窗 ≠ 删除 tab**：副浮窗 ✕ 只关闭分离视图；想完全删 tab 用主浮窗的 tab ✕
+- **主浮窗 closeTab 时**：SecondaryPanelsHost useEffect 自动清理对应副浮窗
+- **复用主浮窗基础设施**：useDraggable / useResizable / 4 个 TabContent 组件
+  全部复用，不复制代码
+- **视觉区分**：副浮窗 header 用 fuchsia 色调 + 「副」徽标
 
 ---
 
@@ -907,7 +924,7 @@ export const usageTracker = {
 ### 阶段 V3.0
 - [ ] 7.1 本地 HTTP API
 - [ ] 7.2 MCP Server 桥接
-- [ ] 7.3 多浮窗支持
+- [x] 7.3 多浮窗支持
 - [x] 7.4 相关阅读推荐
 
 ---

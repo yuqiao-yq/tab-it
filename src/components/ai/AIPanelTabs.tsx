@@ -1,7 +1,8 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { cn } from '../../utils/cn'
 import { useAIPanelStore } from '../../ai/panel/usePanelStore'
+import { useSecondaryPanelsStore } from '../../ai/panel/useSecondaryPanelsStore'
 import type { AITabType } from '../../ai/types'
 
 const TAB_ICON: Record<AITabType, string> = {
@@ -35,6 +36,14 @@ export function AIPanelTabs() {
   const setActiveTab = useAIPanelStore((s) => s.setActiveTab)
   const closeTab = useAIPanelStore((s) => s.closeTab)
   const addTab = useAIPanelStore((s) => s.addTab)
+  const detachTab = useSecondaryPanelsStore((s) => s.detach)
+  // 拉 panels 数组本身（zustand 严格相等比较，仅 push/filter 才变），
+  // 再 useMemo 算 Set 给 detachedTabIds.has() 用 —— 避免每次新建 Set 触发重渲
+  const secondaryPanels = useSecondaryPanelsStore((s) => s.panels)
+  const detachedTabIds = useMemo(
+    () => new Set(secondaryPanels.map((p) => p.tabId)),
+    [secondaryPanels],
+  )
 
   return (
     <div
@@ -48,6 +57,7 @@ export function AIPanelTabs() {
     >
       {tabs.map((t) => {
         const active = t.id === activeTabId
+        const detached = detachedTabIds.has(t.id)
         return (
           <div
             key={t.id}
@@ -65,6 +75,35 @@ export function AIPanelTabs() {
               {TAB_ICON[t.type]}
             </span>
             <span className="truncate">{t.title}</span>
+            {/* 已分离标记：tab 同时被某个副浮窗承载 */}
+            {detached && (
+              <span
+                className="text-[9px] text-fuchsia-500 leading-none shrink-0"
+                title="该 tab 已在副浮窗中显示"
+                aria-label="已分离"
+              >
+                ⤴
+              </span>
+            )}
+            {/* 分离按钮：仅未分离时显示 */}
+            {!detached && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  detachTab(t.id)
+                }}
+                className={cn(
+                  'w-4 h-4 inline-flex items-center justify-center rounded text-[10px] shrink-0',
+                  'opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity',
+                  'text-slate-400 hover:text-fuchsia-500 hover:bg-fuchsia-50 dark:hover:bg-fuchsia-500/10',
+                )}
+                title="分离为独立浮窗"
+                aria-label="分离为独立浮窗"
+              >
+                ⤴
+              </button>
+            )}
             <button
               type="button"
               onClick={(e) => {
@@ -76,7 +115,11 @@ export function AIPanelTabs() {
                 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity',
                 'text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10',
               )}
-              title="关闭此标签"
+              title={
+                detached
+                  ? '关闭此标签（同时会关闭副浮窗）'
+                  : '关闭此标签'
+              }
               aria-label="关闭此标签"
             >
               ✕

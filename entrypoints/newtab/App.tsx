@@ -8,7 +8,9 @@ import { ToastContainer } from '../../src/components/ToastContainer'
 import { toast } from '../../src/stores/useToastStore'
 import { AIFAB } from '../../src/components/ai/AIFAB'
 import { AIPanel } from '../../src/components/ai/AIPanel'
+import { SecondaryPanelsHost } from '../../src/components/ai/SecondaryPanelsHost'
 import { useAIPanelStore } from '../../src/ai/panel/usePanelStore'
+import { useSecondaryPanelsStore } from '../../src/ai/panel/useSecondaryPanelsStore'
 import { useAISettingsStore } from '../../src/ai/useAISettingsStore'
 import { usePassiveSuggest } from '../../src/ai/services/usePassiveSuggest'
 import { useOrganizeStore } from '../../src/ai/services/useOrganizeStore'
@@ -32,6 +34,7 @@ export default function App() {
   const openPanel = useAIPanelStore((s) => s.open)
   const clampPanelToViewport = useAIPanelStore((s) => s.clampToViewport)
   const initAISettings = useAISettingsStore((s) => s.init)
+  const initSecondaryPanels = useSecondaryPanelsStore((s) => s.init)
   const setOrganizeRange = useOrganizeStore((s) => s.setRange)
   const refreshPageIndex = usePageIndex((s) => s.refresh)
 
@@ -43,9 +46,11 @@ export default function App() {
     void init()
     void initPanel()
     void initAISettings()
+    // §7.3 副浮窗状态恢复
+    void initSecondaryPanels()
     // 启动时拉一次「已抓取的 bookmarkId」集合，给卡片角标用（§6.1）
     void refreshPageIndex()
-  }, [init, initPanel, initAISettings, refreshPageIndex])
+  }, [init, initPanel, initAISettings, initSecondaryPanels, refreshPageIndex])
 
   // Cmd/Ctrl + J 全局快捷键唤起 / 隐藏浮窗（与 Notion AI 对齐）
   useEffect(() => {
@@ -156,6 +161,8 @@ export default function App() {
         }}
       />
       <AIPanel />
+      {/* §7.3 副浮窗：分离出来的 tab 各自渲染为独立浮窗 */}
+      <SecondaryPanelsHost />
       <Topbar />
       <div className="flex-1 flex min-h-0">
         <CategorySidebar />
