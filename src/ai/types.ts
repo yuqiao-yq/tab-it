@@ -60,6 +60,19 @@ export interface AISettings {
    * - 默认开启；用户可在「⚙ 设置」一键关闭
    */
   passiveSuggest: boolean
+  /**
+   * 网页内容抓取同意状态（V2.0 §6.1）：
+   * - agreed=false：默认；首次「内容抓取」操作时弹隐私说明 + 用户必须勾同意
+   * - agreed=true + agreedAt：已同意；操作不再弹窗，仅显示常规确认
+   * - 用户可在「⚙ 设置」撤回同意（撤回后下次再用还会弹）
+   *
+   * 这是 manifest host_permissions: <all_urls> 的"应用层使用许可"，
+   * 即"浏览器允许扩展能访问"≠"用户允许这次行为"
+   */
+  crawl: {
+    agreed: boolean
+    agreedAt?: number
+  }
 }
 
 // ─── Chat 接口 ───────────────────────────────────────────
@@ -122,6 +135,9 @@ export const DEFAULT_AI_SETTINGS: AISettings = {
   },
   preferLocal: false,
   passiveSuggest: true,
+  crawl: {
+    agreed: false,
+  },
 }
 
 /**

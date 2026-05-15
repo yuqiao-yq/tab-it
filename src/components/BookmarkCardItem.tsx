@@ -4,6 +4,7 @@ import { CSS } from '@dnd-kit/utilities'
 import type { BookmarkCard } from '../types/bookmark'
 import { getHostname } from '../utils/favicon'
 import { useBookmarkStore } from '../stores/useBookmarkStore'
+import { usePageIndex } from '../ai/services/usePageIndex'
 import { cn } from '../utils/cn'
 import { IconPicker } from './IconPicker'
 import { isImageIcon } from '../utils/icon'
@@ -56,6 +57,12 @@ export function BookmarkCardItem({
   const updateCard = useBookmarkStore((s) => s.updateCard)
   const recordRecentOpen = useBookmarkStore((s) => s.recordRecentOpen)
   const setSearchKeyword = useBookmarkStore((s) => s.setSearchKeyword)
+  /**
+   * 该卡是否已被 §6.1 抓取过正文（成功状态）。
+   * 由 usePageIndex store 统一广播，避免每张卡片各自查 dexie。
+   * 内容抓取属于"附加增强"，未配置 / 未抓取时该角标完全不显示。
+   */
+  const isPageIndexed = usePageIndex((s) => s.indexedIds.has(card.id))
 
   // disabled 让 useSortable 不响应拖拽，但仍保留 ref 用于其他逻辑（最近使用模块场景）
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
@@ -270,6 +277,22 @@ export function BookmarkCardItem({
               <span className="text-xs text-slate-400 truncate min-w-0 flex-1">
                 {getHostname(card.url)}
               </span>
+              {/* §6.1 已抓取正文角标：低调一点，仅 hover 卡片时变实
+                  hover 角标自身可看 tooltip；不可点击（V2.0 §6.2 RAG 上线后再赋予点击行为） */}
+              {isPageIndexed && (
+                <span
+                  className={cn(
+                    'shrink-0 inline-flex items-center justify-center w-3.5 h-3.5 rounded text-[9px] leading-none',
+                    'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-300',
+                    'opacity-60 group-hover:opacity-100 transition-opacity',
+                  )}
+                  aria-hidden
+                  title="已索引正文 · 可参与 AI 语义搜索"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  📄
+                </span>
+              )}
               {/* 标签 chips：紧贴 hostname 右侧；超过 2 个用 +N 收纳。
                   点击 chip → 设置全局 searchKeyword=#tag 触发 BookmarkGrid 切换为 tag 筛选视图。
                   draggable=false 的搜索结果卡片仍然显示，方便用户继续按 tag 收敛 */}

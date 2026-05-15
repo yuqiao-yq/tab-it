@@ -12,6 +12,7 @@ import { useAIPanelStore } from '../../src/ai/panel/usePanelStore'
 import { useAISettingsStore } from '../../src/ai/useAISettingsStore'
 import { usePassiveSuggest } from '../../src/ai/services/usePassiveSuggest'
 import { useOrganizeStore } from '../../src/ai/services/useOrganizeStore'
+import { usePageIndex } from '../../src/ai/services/usePageIndex'
 
 export default function App() {
   const init = useBookmarkStore((s) => s.init)
@@ -32,6 +33,7 @@ export default function App() {
   const clampPanelToViewport = useAIPanelStore((s) => s.clampToViewport)
   const initAISettings = useAISettingsStore((s) => s.init)
   const setOrganizeRange = useOrganizeStore((s) => s.setRange)
+  const refreshPageIndex = usePageIndex((s) => s.refresh)
 
   // 被动建议（§5.2）：FAB 红点 + 浮窗自动落到整理 Tab
   const { shouldShow: hasPassiveHint, dismiss: dismissPassive } =
@@ -41,7 +43,9 @@ export default function App() {
     void init()
     void initPanel()
     void initAISettings()
-  }, [init, initPanel, initAISettings])
+    // 启动时拉一次「已抓取的 bookmarkId」集合，给卡片角标用（§6.1）
+    void refreshPageIndex()
+  }, [init, initPanel, initAISettings, refreshPageIndex])
 
   // Cmd/Ctrl + J 全局快捷键唤起 / 隐藏浮窗（与 Notion AI 对齐）
   useEffect(() => {

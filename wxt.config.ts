@@ -23,6 +23,17 @@ export default defineConfig({
       'tabs',
       ...(browser === 'chrome' ? ['favicon'] : []),
     ],
+    /**
+     * V2.0 §6.1「网页内容抓取」需要跨域 fetch 用户已收藏的网页，
+     * 必须声明 host_permissions: <all_urls>。这是一个用户授权层面的重大变更，
+     * 用户在浏览器扩展管理页能直接看到「读取所有网站的数据」。
+     *
+     * 我们的承诺（产品红线，写在 SettingsTab 的隐私弹窗里）：
+     * - 默认完全不抓取；用户在「⚙ 设置 → 内容抓取」主动同意 + 选范围才会触发
+     * - 抓到的正文仅写入本机 IndexedDB（pageContents 表），永不上传
+     * - 不会读 cookie / Authorization 头，仅 fetch 公开 HTML
+     */
+    host_permissions: ['<all_urls>'],
     chrome_url_overrides: {
       newtab: 'newtab.html',
     },

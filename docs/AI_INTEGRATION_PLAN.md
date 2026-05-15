@@ -445,7 +445,7 @@ src/components/ai/
 
 ## 6. 阶段三：V2.0 个人知识库（3-4 周）
 
-### 任务 6.1 网页内容抓取
+### ✅ 任务 6.1 网页内容抓取
 
 **优先级**：P0  ·  **工期**：5-7 天  ·  **依赖**：4.1
 
@@ -454,31 +454,33 @@ src/components/ai/
 > 这样我能问 "上周看的 React 文章里谁推荐了 useReducer？"
 
 #### 验收标准
-- [ ] manifest 增加 `host_permissions: ['*://*/*']`，**首次使用前显示隐私说明**
-- [ ] 浮窗「⚙ 设置」Tab 加「内容抓取」section：
-  - 「为某分类抓取内容」按钮（不默认全量爬）
-  - 抓取队列进度
-- [ ] 抓取流程：
-  - 用 `fetch` 拉 HTML
-  - 用 `Readability.js`（mozilla 抽离的开源库）提取正文
-  - 截断到前 8000 字符（控制 embedding 成本）
-  - 写入 IndexedDB `pageContents` table
-- [ ] 抓取失败的书签标灰 / 重试按钮
-- [ ] 对每条抓取的页面单独显示「✨ 已索引」徽标
+- [x] manifest 增加 `host_permissions: ['<all_urls>']`，**首次使用前显示隐私说明**
+- [x] 浮窗「⚙ 设置」Tab 加「内容抓取」section：
+  - 范围选择（仅未抓取 / 重试失败 / 全部 / 按某顶层分类）
+  - 抓取队列进度（done/total + 当前抓取中的标题）
+- [x] 抓取流程：
+  - 用 `fetch` + `credentials: 'omit'` 拉 HTML（不带登录态）
+  - 用 `@mozilla/readability` 提取正文
+  - 截断到前 8000 字符
+  - 写入 IndexedDB `pageContents` table（独立 dexie db）
+- [x] 抓取失败的卡写 status='failed' + error；下次「重试上次失败的」可重抓
+- [x] 已索引的卡片在网格上显示 📄 角标（hover 实化），由 usePageIndex store 广播
 
 #### 技术要点
 - 浏览器扩展可绕过 CORS：用 `host_permissions` + `fetch`
-- 失败处理：robots.txt 拒绝 / 403 / 超时
-- 增量：只抓取新增/更新的书签
-- 隐私 alert：必须显示「将下载 N 个网页内容到本地」
+- 失败处理：HTTP 4xx/5xx / content-type 非 HTML / 30s 超时 / Readability 解析失败 都进入 failed
+- 增量：基于 status='ok' 集合自动跳过已索引（除非显式选 'all' 模式覆盖）
+- 隐私 alert：CrawlPrivacyDialog 显式说明「将下载 N 个网页内容到本机 IndexedDB」
+- 并发：3 个 worker pool 并行（默认）；超过 5 易被站点限流
+- AISettings 加 `crawl: { agreed, agreedAt }`：用户同意 → 后续不再弹；可随时撤回
 
 #### Checklist
-- [ ] manifest host_permissions 调整 + 升级提示
-- [ ] Readability.js 集成
-- [ ] crawler service（带并发限制 + 重试）
-- [ ] pageContents IndexedDB table
-- [ ] 抓取进度页（队列 / 完成 / 失败 tab）
-- [ ] 卡片角标显示索引状态
+- [x] manifest host_permissions 调整 + 升级提示
+- [x] Readability.js 集成（`@mozilla/readability` 0.6.0）
+- [x] crawler service（带并发 worker pool + 单条 abortController + 立即落库）
+- [x] pageContents IndexedDB table（独立 dexie db `tabit-pages`）
+- [x] 抓取进度页（SettingsTab > 内容抓取 section）
+- [x] 卡片角标显示索引状态（usePageIndex store + 📄 角标）
 
 ---
 
@@ -884,7 +886,7 @@ export const usageTracker = {
 - [x] 5.3 window.ai 优先
 
 ### 阶段 V2.0
-- [ ] 6.1 网页内容抓取
+- [x] 6.1 网页内容抓取
 - [ ] 6.2 RAG 问答（对话 Tab）
 - [ ] 6.3 AI 自动备注
 - [ ] 6.4 重复 / 失效检测

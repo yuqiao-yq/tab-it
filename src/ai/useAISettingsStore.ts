@@ -35,6 +35,9 @@ interface AISettingsStore extends AISettings {
   // 隐私
   patchPrivacy: (patch: Partial<AISettings['privacy']>) => void
 
+  /** 网页内容抓取同意（§6.1）；revoke=true 撤回同意 */
+  setCrawlAgreed: (agreed: boolean) => void
+
   // Provider CRUD
   addProvider: (input: Omit<AIProviderConfig, 'id'>) => string
   updateProvider: (id: string, patch: Partial<AIProviderConfig>) => void
@@ -65,6 +68,14 @@ export const useAISettingsStore = create<AISettingsStore>((set, get) => ({
             typeof raw.passiveSuggest === 'boolean'
               ? raw.passiveSuggest
               : DEFAULT_AI_SETTINGS.passiveSuggest,
+          // 老版本无此字段 → 视为未同意（默认安全态）
+          crawl: {
+            agreed: !!raw.crawl?.agreed,
+            agreedAt:
+              typeof raw.crawl?.agreedAt === 'number'
+                ? raw.crawl.agreedAt
+                : undefined,
+          },
         }
         set({ ...safe, hydrated: true })
       } else {
@@ -87,6 +98,15 @@ export const useAISettingsStore = create<AISettingsStore>((set, get) => ({
 
   setPassiveSuggest(v) {
     set({ passiveSuggest: v })
+    persist(get())
+  },
+
+  setCrawlAgreed(agreed) {
+    set({
+      crawl: agreed
+        ? { agreed: true, agreedAt: Date.now() }
+        : { agreed: false },
+    })
     persist(get())
   },
 
@@ -162,6 +182,7 @@ function persist(state: AISettingsStore) {
     privacy: state.privacy,
     preferLocal: state.preferLocal,
     passiveSuggest: state.passiveSuggest,
+    crawl: state.crawl,
   }
   if (persistTimer) clearTimeout(persistTimer)
   persistTimer = setTimeout(() => {
