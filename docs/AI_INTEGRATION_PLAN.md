@@ -383,7 +383,7 @@ src/components/ai/
 
 ## 5. 阶段二：V1.5 智能搜索增强（1-2 周）
 
-### 任务 5.1 语义搜索
+### ✅ 任务 5.1 语义搜索
 
 **优先级**：P0  ·  **工期**：4-5 天  ·  **依赖**：4.1
 
@@ -392,26 +392,27 @@ src/components/ai/
 > 应该也能搜到。
 
 #### 验收标准
-- [ ] 后台批量为所有书签生成 embedding（一次性，写入 IndexedDB）
-- [ ] 搜索框模式 chip 增加 `✨ AI`
-- [ ] AI 模式下按向量近似排序
-- [ ] 新建 / 修改书签后自动补 embedding
-- [ ] 浮窗「⚙ 设置」Tab 增加「Embedding 管理」section（重新生成、查看进度）
+- [x] 后台批量为所有书签生成 embedding（一次性，写入 IndexedDB）
+- [x] 搜索框模式 chip 增加 `✨ AI`
+- [x] AI 模式下按向量近似排序
+- [x] 新建 / 修改书签后自动补 embedding（用 contentHash 自动标记 stale，⚙ 设置一键补缺；
+  这样把"何时花钱"的决策权留给用户，符合"成本透明 / opt-in"红线）
+- [x] 浮窗「⚙ 设置」Tab 增加「Embedding 管理」section（重新生成、查看进度）
 
 #### 技术要点
 - embedding 模型：默认 `text-embedding-3-small`（1536 维，便宜）
-- 存储：IndexedDB 新表 `embeddings: { bookmarkId, vector: Float32Array, model, createdAt }`
+- 存储：IndexedDB 新表 `embeddings: { bookmarkId, vector: Float32Array, model, contentHash, createdAt }`
 - 检索：余弦相似度，top K=20，本地计算
 - 失败兜底：embedding 缺失的书签按原有 substring 搜索打补丁
 
 #### Checklist
-- [ ] EmbeddingProvider 接口
-- [ ] 批量生成任务（带进度条，可在浮窗 ⚙ Tab 内查看）
-- [ ] IndexedDB embeddings table
-- [ ] 余弦相似度计算函数
-- [ ] 搜索框 ✨ AI 模式
-- [ ] BookmarkGrid 适配语义搜索结果排序
-- [ ] embedding 增量更新 hook（addCard / updateCard 时触发）
+- [x] EmbeddingProvider 接口（`AIProvider.embedding`，OpenAICompatibleProvider 已实现）
+- [x] 批量生成任务（带进度条，可在浮窗 ⚙ Tab 内查看）
+- [x] IndexedDB embeddings table（dexie）
+- [x] 余弦相似度计算函数（`cosineSimilarity`）
+- [x] 搜索框 ✨ AI 模式（`@ai 关键字`）
+- [x] BookmarkGrid 适配语义搜索结果排序（`AISearchView` + score 角标 + substring 兜底）
+- [x] embedding 增量更新 hook（contentHash 比对自动识别 stale；⚙ 设置「补缺」按钮一键增量同步）
 
 ---
 
@@ -875,7 +876,7 @@ export const usageTracker = {
 - [x] 4.4 自动打标签 + Tag 系统（标签 Tab）
 
 ### 阶段 V1.5
-- [ ] 5.1 语义搜索
+- [x] 5.1 语义搜索
 - [ ] 5.2 被动整理建议
 - [ ] 5.3 window.ai 优先
 
