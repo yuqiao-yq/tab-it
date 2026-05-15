@@ -73,6 +73,13 @@ export interface AISettings {
     agreed: boolean
     agreedAt?: number
   }
+  /**
+   * AI 自动备注（V2.0 §6.3）：
+   * - true：crawler 抓完一批正文后，自动接力调 summarizer 为「未写备注」的卡生成 1 句话摘要
+   * - false（默认）：用户需手动在 ⚙ 设置 → AI 自动备注 点「批量生成」
+   * - 关闭也不影响"手动批量"按钮，只是不会自动联动
+   */
+  autoSummarize: boolean
 }
 
 // ─── Chat 接口 ───────────────────────────────────────────
@@ -138,6 +145,7 @@ export const DEFAULT_AI_SETTINGS: AISettings = {
   crawl: {
     agreed: false,
   },
+  autoSummarize: false,
 }
 
 /**

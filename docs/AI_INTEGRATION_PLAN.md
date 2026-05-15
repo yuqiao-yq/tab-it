@@ -529,13 +529,16 @@ src/components/ai/
 
 ---
 
-### 任务 6.3 AI 自动备注
+### ✅ 任务 6.3 AI 自动备注
 
 **优先级**：P2  ·  **工期**：2-3 天  ·  **依赖**：6.1
 
-- [ ] 抓取完内容后，AI 为每条书签写 1 句话摘要
-- [ ] 写入 `card.description`（不覆盖用户已写的）
-- [ ] 浮窗「⚙ 设置」Tab 提供开关：是否自动总结新增书签
+- [x] 基于已抓取正文（§6.1），AI 为每张卡生成 1 句话摘要（≤ 25 字）
+- [x] 写入 `card.description`（不覆盖用户已写的；只处理 description 为空的卡）
+- [x] 浮窗「⚙ 设置」Tab → 「AI 自动备注」section + autoSummarize 开关
+- [x] 联动设计取舍：autoSummarize=true 时，crawler 完成后弹 toast 提示「N 条可生成」
+  + action 按钮跳到 SummarySection，**不直接静默调 LLM** —— 让用户保留最终决策权，
+  避免无声消耗 token（与 §6.1 隐私同意红线一致）
 
 ---
 
@@ -891,7 +894,7 @@ export const usageTracker = {
 ### 阶段 V2.0
 - [x] 6.1 网页内容抓取
 - [x] 6.2 RAG 问答（对话 Tab）
-- [ ] 6.3 AI 自动备注
+- [x] 6.3 AI 自动备注
 - [ ] 6.4 重复 / 失效检测
 
 ### 阶段 V3.0

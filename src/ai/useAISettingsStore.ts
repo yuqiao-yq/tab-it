@@ -37,6 +37,8 @@ interface AISettingsStore extends AISettings {
 
   /** 网页内容抓取同意（§6.1）；revoke=true 撤回同意 */
   setCrawlAgreed: (agreed: boolean) => void
+  /** AI 自动备注开关（§6.3） */
+  setAutoSummarize: (v: boolean) => void
 
   // Provider CRUD
   addProvider: (input: Omit<AIProviderConfig, 'id'>) => string
@@ -76,6 +78,10 @@ export const useAISettingsStore = create<AISettingsStore>((set, get) => ({
                 ? raw.crawl.agreedAt
                 : undefined,
           },
+          autoSummarize:
+            typeof raw.autoSummarize === 'boolean'
+              ? raw.autoSummarize
+              : DEFAULT_AI_SETTINGS.autoSummarize,
         }
         set({ ...safe, hydrated: true })
       } else {
@@ -107,6 +113,11 @@ export const useAISettingsStore = create<AISettingsStore>((set, get) => ({
         ? { agreed: true, agreedAt: Date.now() }
         : { agreed: false },
     })
+    persist(get())
+  },
+
+  setAutoSummarize(v) {
+    set({ autoSummarize: v })
     persist(get())
   },
 
@@ -183,6 +194,7 @@ function persist(state: AISettingsStore) {
     preferLocal: state.preferLocal,
     passiveSuggest: state.passiveSuggest,
     crawl: state.crawl,
+    autoSummarize: state.autoSummarize,
   }
   if (persistTimer) clearTimeout(persistTimer)
   persistTimer = setTimeout(() => {
