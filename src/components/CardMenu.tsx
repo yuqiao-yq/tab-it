@@ -248,4 +248,10 @@ export const MenuIcons = {
       <line x1="9" y1="17" x2="13" y2="17" />
     </svg>
   ),
+  Sparkle: () => (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M12 3l1.9 5.4L19 10l-5.1 1.6L12 17l-1.9-5.4L5 10l5.1-1.6L12 3z" />
+      <path d="M19 16l.7 1.9L21 18.5l-1.3.6L19 21l-.7-1.9L17 18.5l1.3-.6L19 16z" />
+    </svg>
+  ),
 }

@@ -10,6 +10,7 @@ import { IconPicker } from './IconPicker'
 import { isImageIcon } from '../utils/icon'
 import { CardMenu, MenuIcons, type CardMenuItem } from './CardMenu'
 import { FaviconImg } from './FaviconImg'
+import { RelatedReadingDialog } from './RelatedReadingDialog'
 
 interface Props {
   card: BookmarkCard
@@ -77,6 +78,8 @@ export function BookmarkCardItem({
   const [draftUrl, setDraftUrl] = useState(card.url)
   const [draftIcon, setDraftIcon] = useState<string | undefined>(card.icon)
   const titleInputRef = useRef<HTMLInputElement | null>(null)
+  // §7.4 相关阅读弹层显隐
+  const [showRelated, setShowRelated] = useState(false)
 
   // 合并 ref（既给 dnd-kit，也给本组件用）
   const setRefs = (el: HTMLDivElement | null) => {
@@ -169,6 +172,7 @@ export function BookmarkCardItem({
     )
 
   return (
+    <>
     <div
       ref={setRefs}
       style={style}
@@ -329,6 +333,12 @@ export function BookmarkCardItem({
                   onSelect: handleEditNote,
                 },
                 {
+                  key: 'related',
+                  label: '相关阅读',
+                  icon: <MenuIcons.Sparkle />,
+                  onSelect: () => setShowRelated(true),
+                } satisfies CardMenuItem,
+                {
                   key: 'delete',
                   label: '删除',
                   icon: <MenuIcons.Trash />,
@@ -413,6 +423,14 @@ export function BookmarkCardItem({
         )}
       </div>
     </div>
+    {/* §7.4 相关阅读弹层；createPortal 自挂 body，不受卡片 overflow 限制 */}
+    {showRelated && (
+      <RelatedReadingDialog
+        card={card}
+        onClose={() => setShowRelated(false)}
+      />
+    )}
+    </>
   )
 }
 

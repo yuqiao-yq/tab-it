@@ -617,13 +617,16 @@ GET  /v1/chat?q=xxx              RAG 问答（SSE 流式）
 
 ---
 
-### 任务 7.4 相关阅读推荐
+### ✅ 任务 7.4 相关阅读推荐
 
 **优先级**：P1  ·  **工期**：2-3 天  ·  **依赖**：5.1
 
-- [ ] BookmarkCardItem 详情态展示「相关阅读」section
-- [ ] 基于 embedding 余弦相似度从已有书签中找 top 3
-- [ ] **不引入外部数据**，避免推荐质量失控 / 商业化嫌疑
+- [x] BookmarkCardItem 卡片菜单加「✨ 相关阅读」项 → 弹 RelatedReadingDialog
+  （没有现成的"详情态"概念；用菜单触发 + portal 弹层比新增"详情态"更轻）
+- [x] 基于 embedding 余弦相似度从全库找 top 3（默认 minScore=0.4，比 RAG 严）
+- [x] 纯本地 cosine，不调任何 LLM / 外部服务（findSimilarCards in embedder.ts）
+- [x] 三态 UI：loading / 目标卡未 embed → 引导去 ⚙ 生成 / 无候选 → 引导补全
+- [x] 推荐项点击直接打开 url + 记录"最近使用"，关闭弹层
 
 ---
 
@@ -905,7 +908,7 @@ export const usageTracker = {
 - [ ] 7.1 本地 HTTP API
 - [ ] 7.2 MCP Server 桥接
 - [ ] 7.3 多浮窗支持
-- [ ] 7.4 相关阅读推荐
+- [x] 7.4 相关阅读推荐
 
 ---
 

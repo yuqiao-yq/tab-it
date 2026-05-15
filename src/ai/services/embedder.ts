@@ -4,6 +4,7 @@ import {
   type EmbeddingRow,
   deleteEmbeddings,
   getAllEmbeddings,
+  getEmbeddingsMap,
   getIndexedIds,
   putEmbeddings,
 } from '../../repositories/EmbeddingsDB'
@@ -382,4 +383,68 @@ export async function cleanOrphans(cards: BookmarkCard[]): Promise<number> {
   }
   if (orphans.length > 0) await deleteEmbeddings(orphans)
   return orphans.length
+}
+
+// ─── 相关阅读推荐（V3.0 §7.4） ────────────────────
+
+export interface SimilarCardHit {
+  card: BookmarkCard
+  /** [0, 1] 余弦相似度 */
+  score: number
+}
+
+export interface FindSimilarOptions {
+  /** 取 top K；默认 3 */
+  topK?: number
+  /** 低于此分数不返回；默认 0.4（比 RAG 严一点：详情页推荐质量比召回数量更重要） */
+  minScore?: number
+}
+
+/**
+ * 为某张卡片找"内容相似的 top K 张卡"（不含目标卡自身）。
+ *
+ * 与 §6.2 RAG 检索的差别：那个用 query → 即时 embed → 全量比；
+ * 这里目标 card 已经有 embedding row（依赖 §5.1 提前生成），不再调 LLM，
+ * 完全本地 cosine，零成本零延迟。
+ *
+ * 返回空数组的常见情形：
+ *  1. 目标卡未生成 embedding（用户没在 ⚙ 设置点过「补缺」）
+ *  2. 全库 embedding 太少；或所有候选 score < minScore
+ * UI 应区分提示，引导用户去 ⚙ 设置生成。
+ *
+ * 设计红线：纯本地算 + 仅复用已有书签数据，不引入外部数据源
+ * （文档 §7.4：避免推荐质量失控 / 商业化嫌疑）
+ */
+export async function findSimilarCards(
+  cardId: string,
+  cards: BookmarkCard[],
+  opts: FindSimilarOptions = {},
+): Promise<{ hits: SimilarCardHit[]; reason?: 'no-self-embedding' | 'no-candidates' }> {
+  const topK = opts.topK ?? 3
+  const minScore = opts.minScore ?? 0.4
+
+  // 取目标卡 + 全库 embedding 行
+  const ids = cards.map((c) => c.id)
+  const map = await getEmbeddingsMap(ids)
+  const selfRow = map.get(cardId)
+  if (!selfRow || selfRow.vector.length === 0) {
+    return { hits: [], reason: 'no-self-embedding' }
+  }
+
+  const cardMap = new Map(cards.map((c) => [c.id, c]))
+  const scored: SimilarCardHit[] = []
+  for (const [id, row] of map) {
+    if (id === cardId) continue
+    if (row.vector.length === 0) continue
+    const card = cardMap.get(id)
+    if (!card) continue // 孤立 embedding，跳过
+    const score = cosineSimilarity(selfRow.vector, row.vector)
+    if (score < minScore) continue
+    scored.push({ card, score })
+  }
+  if (scored.length === 0) {
+    return { hits: [], reason: 'no-candidates' }
+  }
+  scored.sort((a, b) => b.score - a.score)
+  return { hits: scored.slice(0, topK) }
 }
