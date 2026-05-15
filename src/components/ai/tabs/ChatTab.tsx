@@ -1,11 +1,32 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAIPanelStore } from '../../../ai/panel/usePanelStore'
 import { useAISettingsStore } from '../../../ai/useAISettingsStore'
-import { runChat, suggestChatTitle } from '../../../ai/services/chatter'
+import {
+  runChat,
+  runRagChat,
+  suggestChatTitle,
+} from '../../../ai/services/chatter'
+import type { RetrievedDoc } from '../../../ai/services/retriever'
 import { isAIConfigured } from '../../../ai/types'
 import type { ChatMessage } from '../../../ai/types'
+import { useBookmarkStore } from '../../../stores/useBookmarkStore'
+import { usePageIndex } from '../../../ai/services/usePageIndex'
 import { toast } from '../../../stores/useToastStore'
 import { cn } from '../../../utils/cn'
+
+/**
+ * 持久化到 tab.state 的消息：在 ChatMessage 之上额外挂 retrieved（仅 assistant 用），
+ * 用于 UI 在气泡下方渲染引用书签列表。LLM 调用时不会发这个字段。
+ */
+interface StoredRef {
+  id: string
+  title: string
+  url: string
+  score: number
+}
+interface StoredMessage extends ChatMessage {
+  retrieved?: StoredRef[]
+}
 
 /**
  * 「💬 对话」Tab —— V1 简化版
@@ -25,11 +46,22 @@ import { cn } from '../../../utils/cn'
 export function ChatTab({ tabId }: { tabId: string }) {
   const settings = useAISettingsStore()
   const configured = isAIConfigured(settings)
+  const cards = useBookmarkStore((s) => s.cards)
+  const indexedIds = usePageIndex((s) => s.indexedIds)
 
-  // 从 panel store 读 / 写 当前 tab 的对话历史
+  // 从 panel store 读 / 写 当前 tab 的对话历史 + RAG 模式开关
   const tab = useAIPanelStore((s) => s.tabs.find((t) => t.id === tabId))
   const patchTab = useAIPanelStore((s) => s.patchTab)
-  const messages = (tab?.state?.messages as ChatMessage[] | undefined) ?? []
+  const messages = (tab?.state?.messages as StoredMessage[] | undefined) ?? []
+  /**
+   * RAG 模式（§6.2）：开启后每条提问会先用 query embedding 检索 top K 已索引内容，
+   * 把片段作为 system context 拼 prompt。默认关闭，让用户主动 opt-in。
+   */
+  const ragEnabled = (tab?.state?.ragEnabled as boolean | undefined) ?? false
+  const setRagEnabled = (v: boolean) =>
+    patchTab(tabId, {
+      state: { ...(tab?.state ?? {}), ragEnabled: v },
+    })
 
   // 当前流式中的"临时 assistant 消息"，未结束前不写 store
   const [streamingText, setStreamingText] = useState<string | null>(null)
@@ -51,7 +83,7 @@ export function ChatTab({ tabId }: { tabId: string }) {
   }, [messages.length, streamingText])
 
   // 写入 messages 到 store + 联动 tab title
-  const updateMessages = (next: ChatMessage[]) => {
+  const updateMessages = (next: StoredMessage[]) => {
     const newTitle =
       tab?.title === '对话' || !tab?.title || tab?.title === '新对话'
         ? suggestChatTitle(next)
@@ -70,7 +102,7 @@ export function ChatTab({ tabId }: { tabId: string }) {
       return
     }
 
-    const userMsg: ChatMessage = { role: 'user', content }
+    const userMsg: StoredMessage = { role: 'user', content }
     const nextMessages = [...messages, userMsg]
     updateMessages(nextMessages)
     setInput('')
@@ -79,32 +111,70 @@ export function ChatTab({ tabId }: { tabId: string }) {
     setStreamingText('')
     const controller = new AbortController()
     abortRef.current = controller
+    // 仅在 RAG 模式下保留 retrieve 结果，写入最终 assistant 消息
+    let lastRetrieved: RetrievedDoc[] = []
     try {
-      const r = await runChat({
-        // 加一条简短 system 引导
-        messages: [
-          {
-            role: 'system',
-            content:
-              '你是一个友好、严谨的助手。回答精炼、有条理；涉及代码用 ``` 代码块，避免冗余客套。',
+      if (ragEnabled) {
+        const r = await runRagChat({
+          query: content,
+          // 把对话历史发给模型（system 由 retriever 注入；clean 历史里的旧 system）
+          messages: nextMessages.map((m) => ({
+            role: m.role,
+            content: m.content,
+          })),
+          cards,
+          settings,
+          signal: controller.signal,
+          onDelta: (_, full) => setStreamingText(full),
+          onRetrieved: (docs) => {
+            lastRetrieved = docs
           },
-          ...nextMessages,
-        ],
-        settings,
-        signal: controller.signal,
-        onDelta: (_, full) => setStreamingText(full),
-      })
-      // 落库
-      const final: ChatMessage = { role: 'assistant', content: r.text }
-      updateMessages([...nextMessages, final])
+        })
+        const final: StoredMessage = {
+          role: 'assistant',
+          content: r.text,
+          retrieved: r.retrieved.map((d) => ({
+            id: d.card.id,
+            title: d.card.title,
+            url: d.card.url,
+            score: d.score,
+          })),
+        }
+        updateMessages([...nextMessages, final])
+      } else {
+        const r = await runChat({
+          // 加一条简短 system 引导
+          messages: [
+            {
+              role: 'system',
+              content:
+                '你是一个友好、严谨的助手。回答精炼、有条理；涉及代码用 ``` 代码块，避免冗余客套。',
+            },
+            ...nextMessages.map((m) => ({ role: m.role, content: m.content })),
+          ],
+          settings,
+          signal: controller.signal,
+          onDelta: (_, full) => setStreamingText(full),
+        })
+        const final: StoredMessage = { role: 'assistant', content: r.text }
+        updateMessages([...nextMessages, final])
+      }
     } catch (err) {
       if (controller.signal.aborted) {
         // 用户主动中止：把已生成的部分作为 assistant 消息留下（用 ref 拿最新值）
         const partialText = streamingTextRef.current ?? ''
         if (partialText.trim().length > 0) {
-          const partial: ChatMessage = {
+          const partial: StoredMessage = {
             role: 'assistant',
             content: partialText + '\n\n_（已中止）_',
+            retrieved: ragEnabled
+              ? lastRetrieved.map((d) => ({
+                  id: d.card.id,
+                  title: d.card.title,
+                  url: d.card.url,
+                  score: d.score,
+                }))
+              : undefined,
           }
           updateMessages([...nextMessages, partial])
         }
@@ -139,6 +209,51 @@ export function ChatTab({ tabId }: { tabId: string }) {
     )
   }
 
+  /**
+   * 导出为 markdown：把整段对话拼成 md 文档下载。
+   * - role 用 ## 标题分隔
+   * - retrieved 引用以脚注样式列在每条 assistant 消息末尾
+   * - 文件名取 tab.title + 时间戳
+   */
+  const handleExport = () => {
+    if (messages.length === 0) {
+      toast.info('对话为空', '没有可导出的内容')
+      return
+    }
+    const lines: string[] = []
+    lines.push(`# ${tab?.title ?? 'Tab It 对话'}`)
+    lines.push('')
+    lines.push(`> 导出于 ${new Date().toLocaleString()}`)
+    lines.push('')
+    for (const m of messages) {
+      if (m.role === 'system') continue
+      lines.push(`## ${m.role === 'user' ? '🙋 用户' : '✨ 助手'}`)
+      lines.push('')
+      lines.push(m.content)
+      lines.push('')
+      if (m.retrieved && m.retrieved.length > 0) {
+        lines.push('**参考来源：**')
+        for (let i = 0; i < m.retrieved.length; i++) {
+          const r = m.retrieved[i]
+          lines.push(`- [${i + 1}] [${r.title}](${r.url}) · ${(r.score * 100).toFixed(0)}%`)
+        }
+        lines.push('')
+      }
+    }
+    const md = lines.join('\n')
+    const blob = new Blob([md], { type: 'text/markdown' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    const safeTitle = (tab?.title ?? 'chat').replace(/[\\/:*?"<>|]/g, '_')
+    a.href = url
+    a.download = `tabit-${safeTitle}-${new Date()
+      .toISOString()
+      .slice(0, 10)}.md`
+    a.click()
+    URL.revokeObjectURL(url)
+    toast.success('已导出', `${messages.length} 条消息`)
+  }
+
   if (!configured) {
     return <NoAINotice />
   }
@@ -159,13 +274,21 @@ export function ChatTab({ tabId }: { tabId: string }) {
     )
   }
 
+  // 是否有任何已抓取正文（决定 RAG 开关 disabled 与否）
+  const hasIndexed = indexedIds.size > 0
+
   return (
     <div className="flex flex-col h-full">
-      {/* 顶部：当前 Provider + 清空 */}
+      {/* 顶部：当前 Provider + RAG 开关 + 导出 + 清空 */}
       <ChatHeader
         modelName={currentChatProvider?.model}
         canClear={messages.length > 0}
         onClear={handleClear}
+        onExport={handleExport}
+        ragEnabled={ragEnabled}
+        ragAvailable={hasIndexed}
+        onToggleRag={setRagEnabled}
+        indexedCount={indexedIds.size}
       />
 
       {/* 中文场景的语言能力警告：Chrome Gemini Nano 仅 en/es/ja，
@@ -191,6 +314,7 @@ export function ChatTab({ tabId }: { tabId: string }) {
                 key={i}
                 role={m.role}
                 content={m.content}
+                retrieved={m.retrieved}
                 onCopy={() => handleCopy(m.content)}
               />
             ))}
@@ -220,7 +344,13 @@ export function ChatTab({ tabId }: { tabId: string }) {
               void handleSend()
             }
           }}
-          placeholder={sending ? 'AI 正在回答…' : '输入消息，Cmd+Enter 发送'}
+          placeholder={
+            sending
+              ? 'AI 正在回答…'
+              : ragEnabled
+                ? '基于你的本地索引提问，Cmd+Enter 发送'
+                : '输入消息，Cmd+Enter 发送'
+          }
           rows={2}
           disabled={sending}
           className={cn(
@@ -274,10 +404,20 @@ function ChatHeader({
   modelName,
   canClear,
   onClear,
+  onExport,
+  ragEnabled,
+  ragAvailable,
+  onToggleRag,
+  indexedCount,
 }: {
   modelName?: string
   canClear: boolean
   onClear: () => void
+  onExport: () => void
+  ragEnabled: boolean
+  ragAvailable: boolean
+  onToggleRag: (v: boolean) => void
+  indexedCount: number
 }) {
   return (
     <div
@@ -288,10 +428,51 @@ function ChatHeader({
       )}
     >
       <span className="text-slate-400">使用</span>
-      <span className="font-mono text-slate-600 dark:text-slate-300">
+      <span className="font-mono text-slate-600 dark:text-slate-300 truncate max-w-[100px]">
         {modelName ?? '(未配置)'}
       </span>
+
+      {/* RAG 开关：仅当已索引内容 > 0 时可启用；hover 显示数量 */}
+      <button
+        type="button"
+        onClick={() => onToggleRag(!ragEnabled)}
+        disabled={!ragAvailable}
+        title={
+          ragAvailable
+            ? ragEnabled
+              ? `已开启「问问我的书签库」（${indexedCount} 个网页已索引）`
+              : `开启「问问我的书签库」（${indexedCount} 个网页已索引）`
+            : '请先在「⚙ 设置 → 内容抓取」抓取一些网页正文'
+        }
+        className={cn(
+          'inline-flex items-center gap-1 h-5 px-1.5 rounded text-[10px] font-medium',
+          'transition-colors shrink-0',
+          ragEnabled
+            ? 'bg-fuchsia-100 dark:bg-fuchsia-500/20 text-fuchsia-700 dark:text-fuchsia-300'
+            : ragAvailable
+              ? 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'
+              : 'text-slate-300 dark:text-slate-600 cursor-not-allowed',
+        )}
+      >
+        <span aria-hidden>📚</span>
+        <span>{ragEnabled ? 'RAG · 开' : 'RAG'}</span>
+      </button>
+
       <div className="flex-1" />
+      <button
+        type="button"
+        onClick={onExport}
+        disabled={!canClear}
+        className={cn(
+          'h-6 px-2 rounded text-[11px]',
+          canClear
+            ? 'text-slate-500 hover:text-brand hover:bg-slate-100 dark:hover:bg-slate-800'
+            : 'text-slate-300 cursor-not-allowed',
+        )}
+        title="导出为 Markdown"
+      >
+        导出 .md
+      </button>
       <button
         type="button"
         onClick={onClear}
@@ -380,10 +561,16 @@ function EmptyHint() {
   return (
     <div className="h-full flex flex-col items-center justify-center gap-2 text-center pt-4 text-slate-400">
       <div className="text-3xl">💬</div>
-      <p className="text-xs leading-relaxed max-w-[260px]">
-        和 AI 对话。当前是「通用聊天」模式，未读取你的书签内容。
+      <p className="text-xs leading-relaxed max-w-[280px]">
+        和 AI 对话。开启顶部的{' '}
+        <span className="inline-flex items-center gap-0.5 px-1 rounded bg-fuchsia-100 dark:bg-fuchsia-500/20 text-fuchsia-700 dark:text-fuchsia-300 font-medium">
+          📚 RAG
+        </span>{' '}
+        后，AI 会基于你已抓取过的网页正文回答，并附上 [1] [2] 引用来源。
         <br />
-        V2.0 「问问我的书签库」上线后，AI 将能根据你收藏过的网页内容回答问题。
+        <span className="text-[10px] text-slate-300 dark:text-slate-600">
+          先在「⚙ 设置 → 内容抓取」抓些网页正文，RAG 模式才会被启用
+        </span>
       </p>
     </div>
   )
@@ -393,11 +580,13 @@ function Bubble({
   role,
   content,
   streaming,
+  retrieved,
   onCopy,
 }: {
   role: 'user' | 'assistant' | 'system'
   content: string
   streaming?: boolean
+  retrieved?: StoredRef[]
   onCopy?: () => void
 }) {
   if (role === 'system') return null
@@ -422,16 +611,27 @@ function Bubble({
       )}
       <div
         className={cn(
-          'max-w-[85%] rounded-2xl px-3 py-2 text-sm leading-relaxed',
-          'whitespace-pre-wrap break-words',
-          isUser
-            ? 'bg-brand text-white rounded-tr-sm'
-            : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-tl-sm',
+          'max-w-[85%] flex flex-col gap-1.5',
+          isUser ? 'items-end' : 'items-start',
         )}
       >
-        <RichText content={content} />
-        {streaming && (
-          <span className="inline-block w-1.5 h-3.5 bg-current ml-0.5 animate-pulse align-text-bottom" />
+        <div
+          className={cn(
+            'rounded-2xl px-3 py-2 text-sm leading-relaxed',
+            'whitespace-pre-wrap break-words',
+            isUser
+              ? 'bg-brand text-white rounded-tr-sm'
+              : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-tl-sm',
+          )}
+        >
+          <RichText content={content} />
+          {streaming && (
+            <span className="inline-block w-1.5 h-3.5 bg-current ml-0.5 animate-pulse align-text-bottom" />
+          )}
+        </div>
+        {/* RAG 引用列表：紧贴消息气泡下方 */}
+        {!isUser && retrieved && retrieved.length > 0 && (
+          <ReferencesList refs={retrieved} />
         )}
       </div>
       {!isUser && onCopy && !streaming && (
@@ -450,6 +650,52 @@ function Bubble({
           ⎘
         </button>
       )}
+    </div>
+  )
+}
+
+/**
+ * RAG 引用列表（§6.2）：在 assistant 消息下方渲染本次回答用到的来源。
+ * - 编号 [1] [2] 与 system prompt 中给 AI 的标号一一对应
+ * - 点击 → 在新标签页打开原网页
+ * - score 用 0..100 显示
+ */
+function ReferencesList({ refs }: { refs: StoredRef[] }) {
+  return (
+    <div
+      className={cn(
+        'rounded-md px-2 py-1.5 text-[11px] leading-relaxed',
+        'bg-slate-50 dark:bg-slate-800/40',
+        'border border-slate-200 dark:border-slate-700/60',
+        'space-y-0.5 max-w-full',
+      )}
+    >
+      <div className="text-[10px] uppercase tracking-wider text-slate-400 mb-0.5">
+        参考来源 ({refs.length})
+      </div>
+      {refs.map((r, i) => (
+        <a
+          key={r.id}
+          href={r.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={cn(
+            'flex items-baseline gap-1.5 group/ref truncate',
+            'text-slate-700 dark:text-slate-300 hover:text-brand',
+          )}
+          title={r.url}
+        >
+          <span className="shrink-0 text-fuchsia-500 tabular-nums">
+            [{i + 1}]
+          </span>
+          <span className="truncate flex-1 group-hover/ref:underline">
+            {r.title}
+          </span>
+          <span className="shrink-0 text-[10px] text-slate-400 tabular-nums">
+            {Math.round(r.score * 100)}%
+          </span>
+        </a>
+      ))}
     </div>
   )
 }

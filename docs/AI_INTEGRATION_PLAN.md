@@ -484,7 +484,7 @@ src/components/ai/
 
 ---
 
-### 任务 6.2 RAG 问答（对话 Tab）
+### ✅ 任务 6.2 RAG 问答（对话 Tab）
 
 **优先级**：P0  ·  **工期**：5-7 天  ·  **依赖**：5.1 + 6.1
 
@@ -493,36 +493,39 @@ src/components/ai/
 > AI 基于我已收藏的网页内容回答，并附上参考链接。
 
 #### 验收标准
-- [ ] 浮窗「💬 对话」Tab 提供完整聊天界面：
-  - 上方：对话历史流（user / assistant 消息气泡）
-  - 下方：输入框 + 发送按钮
-  - 底部：本次会话引用的书签列表（可点击跳转）
-- [ ] 多对话支持：浮窗 Tab 栏「+」可新建对话，每个对话是独立 Tab
-  - Tab 标题自动从首条提问生成（如 `React 性能...`）
-- [ ] 每次问答流程：
-  1. 提问 embedding 化
-  2. 向量检索 top 10 chunks
-  3. chunks 作为 context 拼 prompt
-  4. 流式输出答案
-  5. 答案中引用 `[1] [2]` 与底部书签卡片对应
-- [ ] 多轮对话支持
-- [ ] 「清空对话」「导出为 markdown」按钮
+- [x] 浮窗「💬 对话」Tab 提供完整聊天界面（v0.9 已实现，本次接通 RAG）：
+  - [x] 上方：对话历史流（user / assistant 消息气泡）
+  - [x] 下方：输入框 + 发送按钮
+  - [x] 引用书签列表：紧贴每条 assistant 消息下方（不放底部，避免历史回看时找不到对应来源）
+- [x] 多对话支持（v0.9 panel store 已实现 tab 维度独立 state）
+  - [x] Tab 标题自动从首条提问生成
+- [x] 每次问答流程：
+  1. [x] 提问通过 embedding 检索 top K（默认 8 篇文档；minScore=0.25 过滤噪音）
+  2. [x] 检索范围：card-level（升级了 §5.1 buildContent，把已抓取正文拼进 embedding 输入）
+  3. [x] 文档片段作为 system prompt 拼接（每篇截断 1500 字符；topK=8 → ~12k 字符 ≈ 6k tokens）
+  4. [x] 流式输出答案
+  5. [x] 答案中要求模型用 [1] [2] 引用；底部 ReferencesList 渲染同序号
+- [x] 多轮对话支持（user → assistant 历史完整传给模型，仅替换 system 为 RAG context）
+- [x] 「清空对话」「导出为 markdown」按钮（含 retrieved 引用脚注）
+- [x] 顶部 RAG 开关：未抓取时 disabled；开启后输入 placeholder 提示"基于本地索引提问"
 
 #### 技术要点
-- chunk 切分：每 500 token 切一段，重叠 50 token
-- 检索：先粗筛 top 20，再用 LLM 精排到 top 5
-- prompt 模板见附录 A.2
-- 流式：SSE / fetch ReadableStream
+- 不做 chunk 切分：复用 §5.1 card-level embedding，单文档作为最小检索单元
+  → 避免新建 chunks 表；对 8000 字以下的 page 召回质量已够用；后续若需要 chunk-level 再升级
+- 检索：余弦 top K + minScore 阈值过滤；不做 LLM rerank（"可选"项；保持简单）
+- prompt 模板：retriever.buildRagSystemPrompt（含约束：必须引用、不复述、片段无关时明确说"未找到"）
+- 流式：复用现有 chatStream（SSE 解析）
+- 召回失败兜底：retrieveContext 返回空时仍回答，但 system prompt 引导模型说明"本回答不来自您的收藏"
 
 #### Checklist
-- [ ] chunk 切分函数
-- [ ] retrieve service（embedding + 余弦）
-- [ ] rerank service（可选，先用简单 top-K）
-- [ ] chat prompt 模板
-- [ ] ChatTab 组件（消息流 + 引用卡片）
-- [ ] 流式渲染（逐字显示 + 「停止」按钮）
-- [ ] 对话持久化（按 Tab 一对一存 storage）
-- [ ] 多对话 Tab 管理（新建 / 关闭 / 切换）
+- [x] ~~chunk 切分函数~~（用 card-level embedding 替代，更简洁）
+- [x] retrieve service（`retrieveContext`，embedding + 余弦 + 拉 PageContent）
+- [x] ~~rerank service~~（先用简单 top-K，文档说"可选"）
+- [x] chat prompt 模板（`buildRagSystemPrompt`）
+- [x] ChatTab 组件升级（RAG 开关 + 引用列表 + 导出 + 引导文案）
+- [x] 流式渲染（沿用 v0.9 + 中止能保留已生成片段）
+- [x] 对话持久化（沿用 panel store tab.state；StoredMessage 加 retrieved 字段）
+- [x] 多对话 Tab 管理（v0.9 已实现）
 
 ---
 
@@ -887,7 +890,7 @@ export const usageTracker = {
 
 ### 阶段 V2.0
 - [x] 6.1 网页内容抓取
-- [ ] 6.2 RAG 问答（对话 Tab）
+- [x] 6.2 RAG 问答（对话 Tab）
 - [ ] 6.3 AI 自动备注
 - [ ] 6.4 重复 / 失效检测
 

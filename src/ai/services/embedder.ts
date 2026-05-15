@@ -7,6 +7,7 @@ import {
   getIndexedIds,
   putEmbeddings,
 } from '../../repositories/EmbeddingsDB'
+import { getPageContentsMap } from '../../repositories/PageContentsDB'
 import type { BookmarkCard } from '../../types/bookmark'
 
 /**
@@ -31,10 +32,13 @@ import type { BookmarkCard } from '../../types/bookmark'
  * - title 是核心信号
  * - hostname 提供领域提示（"medium.com" 暗示是文章）
  * - tags / description 是用户已经标好的"主题压缩"，对召回非常有用
+ * - 若 §6.1 已抓取了正文（pageBody 非空），追加正文前 N 字
+ *   → 这样 query 与"正文关键词"也能召回，给 §6.2 RAG 提供基础
  *
- * 截断到 300 字符，平衡召回质量与 token 成本。
+ * 截断阈值：无正文时 300 字符（成本优先）；
+ *           有正文时整体 ≤ 4000 字符（OpenAI text-embedding-3-small 上限 8191 tokens 远大于此）。
  */
-export function buildContent(card: BookmarkCard): string {
+export function buildContent(card: BookmarkCard, pageBody?: string): string {
   let domain = ''
   try {
     domain = new URL(card.url).hostname.replace(/^www\./, '')
@@ -43,8 +47,11 @@ export function buildContent(card: BookmarkCard): string {
   }
   const tagPart = card.tags?.length ? ` [${card.tags.join(', ')}]` : ''
   const descPart = card.description ? ` — ${card.description}` : ''
-  const raw = `${card.title || '(无标题)'} (${domain})${tagPart}${descPart}`
-  return raw.slice(0, 300)
+  const head = `${card.title || '(无标题)'} (${domain})${tagPart}${descPart}`
+  if (!pageBody) return head.slice(0, 300)
+  // 用 \n\n 分隔头部元数据与正文，让 embedding 能学到"主题"与"细节"两层
+  const combined = `${head}\n\n${pageBody}`
+  return combined.slice(0, 4000)
 }
 
 /**
@@ -110,7 +117,10 @@ export async function computeEmbedStatus(
   cards: BookmarkCard[],
   settings: AISettings,
 ): Promise<EmbedStatus> {
-  const rows = await getAllEmbeddings()
+  const [rows, pageMap] = await Promise.all([
+    getAllEmbeddings(),
+    getPageContentsMap(cards.map((c) => c.id)),
+  ])
   const rowMap = new Map(rows.map((r) => [r.bookmarkId, r]))
   const cardIdSet = new Set(cards.map((c) => c.id))
 
@@ -124,7 +134,10 @@ export async function computeEmbedStatus(
     const row = rowMap.get(card.id)
     if (!row) continue
     indexed++
-    const hash = contentHashOf(buildContent(card))
+    // 把已抓取的正文也纳入 hash：抓取后 hash 会变 → 提示 stale → 用户主动「补缺」
+    const page = pageMap.get(card.id)
+    const pageBody = page?.status === 'ok' ? page.content : undefined
+    const hash = contentHashOf(buildContent(card, pageBody))
     if (row.contentHash !== hash) stale++
     if (expectedModel && row.model !== expectedModel) mismatch++
   }
@@ -178,9 +191,15 @@ async function selectPending(
   cards: BookmarkCard[],
   mode: 'all' | 'missing',
 ): Promise<PendingItem[]> {
+  // 预加载 page contents：让 buildContent 一次性吃到正文，避免逐条查 db
+  const pageMap = await getPageContentsMap(cards.map((c) => c.id))
+  const bodyOf = (id: string): string | undefined => {
+    const p = pageMap.get(id)
+    return p?.status === 'ok' ? p.content : undefined
+  }
   if (mode === 'all') {
     return cards.map((c) => {
-      const content = buildContent(c)
+      const content = buildContent(c, bodyOf(c.id))
       return { card: c, content, hash: contentHashOf(content) }
     })
   }
@@ -189,7 +208,7 @@ async function selectPending(
   const rowMap = new Map(rows.map((r) => [r.bookmarkId, r]))
   const out: PendingItem[] = []
   for (const c of cards) {
-    const content = buildContent(c)
+    const content = buildContent(c, bodyOf(c.id))
     const hash = contentHashOf(content)
     const row = rowMap.get(c.id)
     if (!row || row.contentHash !== hash) {

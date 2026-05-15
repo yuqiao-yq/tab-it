@@ -1,5 +1,11 @@
-import type { AISettings, ChatMessage, ChatChunk } from '../types'
+import type { AISettings, ChatMessage } from '../types'
 import { getProviderFor } from '../manager'
+import {
+  buildRagSystemPrompt,
+  retrieveContext,
+  type RetrievedDoc,
+} from './retriever'
+import type { BookmarkCard } from '../../types/bookmark'
 
 /**
  * 对话 service：薄薄一层包装 provider.chatStream，统一中止 / 错误处理。
@@ -65,4 +71,90 @@ export function suggestChatTitle(messages: ChatMessage[]): string | undefined {
   const text = first.content.replace(/\s+/g, ' ').trim()
   if (!text) return undefined
   return text.length > 12 ? text.slice(0, 12) + '…' : text
+}
+
+// ─── RAG 模式（V2.0 §6.2） ─────────────────────────
+
+export interface RunRagChatOptions {
+  /** 用户最新一条提问文本（用于 retrieve） */
+  query: string
+  /** 完整对话历史（含本次 query 的 user 消息），最终发给模型 */
+  messages: ChatMessage[]
+  /** 用于在 cards 中检索语义命中的所有书签 */
+  cards: BookmarkCard[]
+  settings: AISettings
+  signal?: AbortSignal
+  onDelta?: (delta: string, full: string) => void
+  onRetrieved?: (docs: RetrievedDoc[]) => void
+}
+
+export interface RunRagChatResult {
+  text: string
+  model?: string
+  /** 本次召回的来源；UI 用来渲染底部引用列表 */
+  retrieved: RetrievedDoc[]
+}
+
+/**
+ * RAG 对话主流程：
+ *   1. 用 query 做 embedding 检索 top K 文档
+ *   2. 把命中文档拼成 system prompt
+ *   3. 流式问答；返回时附带 retrieved，UI 据此渲染引用 / 跳转
+ *
+ * 没召回任何文档时仍会调 LLM 回答，但 system prompt 会引导模型说明
+ * "本回答不来自你的收藏"，避免误导。
+ */
+export async function runRagChat(
+  opts: RunRagChatOptions,
+): Promise<RunRagChatResult> {
+  const provider = getProviderFor('chat', opts.settings)
+  if (!provider) {
+    throw new Error('未配置可用的对话 Provider，请先去「⚙ 设置」添加')
+  }
+
+  // Step 1: retrieve（在调 LLM 前完成；让用户先看到底部引用，再等流式）
+  const docs = await retrieveContext({
+    query: opts.query,
+    cards: opts.cards,
+    settings: opts.settings,
+    signal: opts.signal,
+  })
+  opts.onRetrieved?.(docs)
+
+  // Step 2: 构造带 RAG 上下文的 messages
+  // 把已有对话历史前置一条 system prompt（替换 / 不包含历史里的 system）
+  const ragSystem: ChatMessage = {
+    role: 'system',
+    content: buildRagSystemPrompt(docs),
+  }
+  const cleanedHistory = opts.messages.filter((m) => m.role !== 'system')
+  const finalMessages: ChatMessage[] = [ragSystem, ...cleanedHistory]
+
+  // Step 3: 流式调用
+  let full = ''
+  let model: string | undefined
+  if (provider.chatStream) {
+    for await (const chunk of provider.chatStream({
+      messages: finalMessages,
+      signal: opts.signal,
+      temperature: 0.3, // RAG 场景温度低一点，更贴近事实
+    })) {
+      if (chunk.delta) {
+        full += chunk.delta
+        opts.onDelta?.(chunk.delta, full)
+      }
+      if (chunk.done) break
+    }
+  } else {
+    // 兜底：非流式
+    const r = await provider.chat({
+      messages: finalMessages,
+      signal: opts.signal,
+      temperature: 0.3,
+    })
+    full = r.text
+    model = r.model
+    opts.onDelta?.(r.text, r.text)
+  }
+  return { text: full, model, retrieved: docs }
 }
